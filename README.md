@@ -24,9 +24,9 @@ The first session is the one that goes wrong, so the instruction arrives
 unprompted. Sign in, open the Interoperability page, and the guide is already
 there — before a single production has been created.
 
-<video src="https://raw.githubusercontent.com/dfrancoisc/HCCCICD/main/docs/img/onboarding.mp4" controls muted playsinline width="100%"></video>
+![Change Control onboarding in the Interoperability editor](docs/img/onboarding.gif)
 
-<sub>Not playing? <a href="docs/img/onboarding.gif">Watch the animation instead</a></sub>
+<sub>Plays automatically above. [Download the MP4](docs/img/onboarding.mp4) if you want to pause and scrub.</sub>
 
 A strip along the bottom of the editor holds the answer to "am I covered right
 now?" for as long as the user is building: amber and naming the risk while
@@ -42,9 +42,9 @@ Eight steps, from starting a change to sending it on to the next environment.
 The safety check is the part worth watching: five items become twelve because
 seven dependencies would have been missed.
 
-<video src="https://raw.githubusercontent.com/dfrancoisc/HCCCICD/main/docs/img/walkthrough.mp4" controls muted playsinline width="100%"></video>
+![Change Control walkthrough](docs/img/walkthrough.gif)
 
-<sub>Not playing? <a href="docs/img/walkthrough.gif">Watch the animation instead</a></sub>
+<sub>Plays automatically above. [Download the MP4](docs/img/walkthrough.mp4) if you want to pause and scrub.</sub>
 
 ### If you built something before starting a change
 
@@ -52,9 +52,9 @@ The common first-time case. Nothing is lost — every save was captured anyway �
 but nothing was holding those items either, so the tool checks whether a
 colleague edited the same one while yours was unassigned.
 
-<video src="https://raw.githubusercontent.com/dfrancoisc/HCCCICD/main/docs/img/recovery.mp4" controls muted playsinline width="100%"></video>
+![Recovering work built before a change was started](docs/img/recovery.gif)
 
-<sub>Not playing? <a href="docs/img/recovery.gif">Watch the animation instead</a></sub>
+<sub>Plays automatically above. [Download the MP4](docs/img/recovery.mp4) if you want to pause and scrub.</sub>
 
 > Both are recorded from the seeded demo (`?demo=`), so they show a populated
 > change with a colleague holding items. A real first session starts empty.
@@ -364,13 +364,36 @@ The user interface does not change.
 
 ```bash
 ./scripts/record-walkthrough.py
+./scripts/gif-to-mp4.py
 ```
 
-Drives the tool through its `?demo=` deep links with headless Chrome, captures a
-full-resolution frame per state, adds a caption bar and assembles the GIFs. No
-ffmpeg or browser-automation dependency — Chrome's `--screenshot` and Pillow are
-enough. Edit the `WALKTHROUGH` and `RECOVERY` tables at the top of the script to
-change the sequence, timings or captions.
+The first drives the tool through its `?demo=` deep links with headless Chrome,
+captures a full-resolution frame per state, adds a caption bar and assembles the
+GIFs. Edit the `WALKTHROUGH`, `RECOVERY` and `ONBOARDING` tables at the top of
+the script to change the sequence, timings or captions. The editor-onboarding
+frames run against `scripts/harness/editor.html`, a stand-in for the shipped
+editor with the state stubbed, because the real one needs a login.
+
+The second re-times those same GIFs into H.264 MP4s via AVFoundation
+(`scripts/mp4encode.swift`). The GIFs stay the source of truth, so the two
+cannot drift apart. Neither script needs ffmpeg or a browser-automation
+library — Chrome's `--screenshot`, Pillow and the `swift` that ships with macOS
+are enough.
+
+### Why the GIF and not a video player
+
+GitHub strips `<video>` elements from README markdown, and
+`raw.githubusercontent.com` serves MP4 as `application/octet-stream` with
+`nosniff`, so a self-hosted video will not play inline no matter how it is
+referenced. An animated GIF is the only thing that genuinely embeds and
+autoplays, which is why it leads each section.
+
+The one supported route to a real player is GitHub's own attachment CDN: drag
+an MP4 into the comment box of an issue or pull request in the browser, and
+GitHub mints a `user-attachments` URL that its markdown pipeline turns into a
+player. That URL can then be pasted into the README. It requires the web UI —
+there is no API for it — so the MP4s are committed here for anyone who wants to
+do that, or simply to pause and scrub through a 40-second walkthrough.
 
 ## References
 
