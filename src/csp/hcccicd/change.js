@@ -498,12 +498,15 @@ function applyState(st) {
     S.ws = null;
   }
 
-  /* Claims are derived: in live mode you hold what you have changed. */
-  S.claims = CLAIMS.filter(function (c) { return c.state === 'other'; });
+  /* Live mode carries no fixture data at all. Claims are derived purely from
+   * what this user has actually changed — there is no invented colleague
+   * holding an invented item. An empty change means an empty claims table. */
+  S.claims = [];
   S.wsKeys.forEach(function (k) {
     var c = byKey(k);
     if (c) S.claims.push({ item: k, type: c.type, by: 'me', since: c.when || stamp(), state: 'held' });
   });
+  REQUESTS.length = 0;
 
   /* Drop selections for items that no longer exist. */
   Object.keys(S.picked).forEach(function (k) { if (!byKey(k)) delete S.picked[k]; });
@@ -513,6 +516,16 @@ function applyState(st) {
   S.orphans.forEach(function (k) {
     if (!(k in S.orphanPick)) S.orphanPick[k] = true;
   });
+}
+
+/* Tell the Interoperability editor that the change state moved, so its
+ * reminder bar and status dot update immediately rather than on the next poll. */
+function notifyHost() {
+  try {
+    if (window.parent && window.parent !== window) {
+      window.parent.postMessage({ type: 'hcccicd:state-changed' }, '*');
+    }
+  } catch (e) { }
 }
 
 function normalise(c) {
@@ -564,7 +577,7 @@ var DATA = {
       return api('/workspace', {
         method: 'POST',
         body: JSON.stringify({ ref: ref, title: title, base: base })
-      }).then(function (st) { applyState(st); return S.ws; });
+      }).then(function (st) { applyState(st); notifyHost(); return S.ws; });
     }
     S.ws = {
       ref: ref, title: title, base: base,
@@ -602,7 +615,7 @@ var DATA = {
       return api('/adopt', {
         method: 'POST',
         body: JSON.stringify({ ref: ref, title: title, items: keys })
-      }).then(function (st) { applyState(st); return S.ws; });
+      }).then(function (st) { applyState(st); notifyHost(); return S.ws; });
     }
     return DATA.startWorkspace(ref, title, 'prod').then(function (ws) {
       keys.forEach(function (k) {
@@ -1582,6 +1595,13 @@ function renderReview() {
  * ===================================================================== */
 
 function renderRequests() {
+  if (!REQUESTS.length) {
+    $('#req-list').innerHTML =
+      '<div class="banner banner-ok">You have not sent anything forward yet. ' +
+      'Once you submit a change from <strong>Send forward</strong>, it appears here ' +
+      'with its position in the pipeline.</div>';
+    return;
+  }
   $('#req-list').innerHTML = REQUESTS.map(function (r) {
     var cur = r.stages.filter(function (s) { return s.state === 'done'; }).slice(-1)[0];
     var blocked = r.stages.some(function (s) { return s.state === 'rejected'; });
@@ -1901,6 +1921,7 @@ function wire() {
       [{ label: 'Cancel' },
        { label: 'Start from zero', kind: 'primary', onClick: function () {
            DATA.reset().then(function () {
+             notifyHost();
              S.picked = {}; S.orphanPick = {}; S.waived = {}; S.step = 1;
              renderHeader();
              go('workspace');
@@ -1923,7 +1944,7 @@ function wire() {
            };
            if (LIVE) {
              api('/workspace', { method: 'DELETE' })
-               .then(function (st) { applyState(st); done(); })
+               .then(function (st) { applyState(st); notifyHost(); done(); })
                .catch(function (e) { toast('Failed: ' + e.message); });
            } else {
              S.ws = null;
@@ -2047,7 +2068,67 @@ function closeWelcome() {
 }
 
 /* =====================================================================
- * 13. BOOT
+ * 13. DEMO DEEP LINKS
+ *
+ * ?demo=<state> puts the tool straight into one screen so a walkthrough can be
+ * captured frame by frame without scripting a browser. Also handy for pointing
+ * someone at a specific moment in the flow. Fixture modes only — it drives the
+ * seeded data, never a live namespace.
+ * ===================================================================== */
+
+function runDemo(name) {
+  $('#welcome').hidden = true;
+
+  var steps = {
+    guide:        function () { go('guide'); },
+    workspace:    function () { go('workspace'); },
+    changes:      function () { go('changes'); },
+    promote1:     function () { go('promote'); gotoStep(1); },
+    promote2:     function () { go('promote'); gotoStep(2); },
+    promote3:     function () { go('promote'); gotoStep(3); },
+    promote3fix:  function () { go('promote'); gotoStep(3); applyAllFixes(); },
+    settings:     function () { go('promote'); gotoStep(3); applyAllFixes();
+                                showSettingsDiff(envById(S.form.target)); },
+    promote4:     function () { go('promote'); gotoStep(3); applyAllFixes();
+                                ackAll(); gotoStep(4); },
+    submitted:    function () { go('promote'); gotoStep(3); applyAllFixes();
+                                ackAll(); gotoStep(4); submit(); },
+    requests:     function () { go('requests'); },
+    environments: function () { go('environments'); },
+    orphans:      function () { go('workspace'); },
+    collision:    function () { go('workspace'); runCollisionCheck(false); },
+    adopted:      function () {
+                    $('#orphan-ref').value = 'INT-4830';
+                    $('#orphan-title').value = 'Lab results feed to the LIS';
+                    S.collisionsChecked = true;
+                    adoptOrphans();
+                    go('workspace');
+                  }
+  };
+
+  var fn = steps[name];
+  if (fn) fn();
+
+  /* Resolve every blocking finding, following the chain the way a user would
+   * by clicking each "Add …" in turn. */
+  function applyAllFixes() {
+    for (var guard = 0; guard < 40; guard++) {
+      var f = S.findings.filter(function (x) { return x.fixKey && x.sev === 'block'; })[0];
+      if (!f) break;
+      S.picked[f.fixKey] = true;
+      S.findings = analyse(pickedKeys(), S.form.target, BASELINE[S.form.target] || {});
+    }
+    renderFindings();
+  }
+
+  function ackAll() {
+    S.findings.forEach(function (f) { if (f.sev === 'warn') S.waived[f.id] = true; });
+    renderFindings();
+  }
+}
+
+/* =====================================================================
+ * 14. BOOT
  * ===================================================================== */
 
 function boot() {
@@ -2121,6 +2202,16 @@ function boot() {
 
     renderHeader();
     go('workspace');
+
+    var demo = p.get('demo');
+    if (demo) { runDemo(demo); return; }
+
+    if (p.get('focus') === 'start') {
+      go('workspace');
+      var f = S.ws ? null : $('#ws-ref');
+      if (f) { try { f.focus(); } catch (e) {} }
+    }
+
     maybeShowWelcome();
   });
 }

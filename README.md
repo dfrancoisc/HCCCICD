@@ -18,6 +18,40 @@ something buildable, not a wish.
 
 ---
 
+## Watch it end to end
+
+Eight steps, from starting a change to sending it on to the next environment.
+The safety check is the part worth watching: five items become twelve because
+seven dependencies would have been missed.
+
+![Change Control walkthrough](docs/img/walkthrough.gif)
+
+### If you built something before starting a change
+
+The common first-time case. Nothing is lost — every save was captured anyway —
+but nothing was holding those items either, so the tool checks whether a
+colleague edited the same one while yours was unassigned.
+
+![Recovering work built before a change was started](docs/img/recovery.gif)
+
+> Both are recorded from the seeded demo (`?demo=`), so they show a populated
+> change with a colleague holding items. A real first session starts empty.
+> Re-record with `./scripts/record-walkthrough.py`.
+
+---
+
+## Diagrams
+
+**[User journey](docs/DIAGRAMS.md#1-user-journey)** — what the Integration
+Builder actually does, from signing in to the change running in Production,
+including the recovery branch and what happens when the safety check fires.
+
+**[Architecture and APIs](docs/DIAGRAMS.md#2-architecture-and-apis)** — where
+each piece runs, the REST surface, the per-user state in `^HCCCICD`, and which
+parts are real today versus still fixtures.
+
+---
+
 ## The problem it solves
 
 Two things go wrong when a non-developer promotes a change.
@@ -296,11 +330,25 @@ The user interface does not change.
 
 ## Documentation
 
+- [Diagrams](docs/DIAGRAMS.md) — the user journey, and the architecture with its
+  REST surface.
 - [Design notes](docs/CHANGE_CONTROL.md) — persona, the workflow it models, the
   dependency rules in full, and how each screen maps to Embedded Git and the
   Health Connect Cloud pipeline.
 - [Demo script](docs/DEMO_SCRIPT.md) — a walkthrough that lands the two points
   the tool exists to make.
+
+## Recording the walkthroughs
+
+```bash
+./scripts/record-walkthrough.py
+```
+
+Drives the tool through its `?demo=` deep links with headless Chrome, captures a
+full-resolution frame per state, adds a caption bar and assembles the GIFs. No
+ffmpeg or browser-automation dependency — Chrome's `--screenshot` and Pillow are
+enough. Edit the `WALKTHROUGH` and `RECOVERY` tables at the top of the script to
+change the sequence, timings or captions.
 
 ## References
 

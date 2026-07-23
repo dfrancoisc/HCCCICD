@@ -1,0 +1,27 @@
+<!doctype html><meta charset=utf-8><title>Interop Editor (harness, signed in)</title>
+<style>body{margin:0;background:#f4f5f7;font:14px -apple-system,sans-serif}
+.topbar{background:#1a1a2e;color:#fff;padding:14px 20px;font-size:15px;font-weight:600}
+.dashboard{display:flex;flex-wrap:wrap;padding:10px;background:#fff;border-bottom:1px solid #ddd}
+.navbuttons{margin:5px;height:32px;padding:0 14px;display:flex;align-items:center;background:#eee;border:1px solid #ccc;border-radius:4px;font-size:13px}
+.content{padding:26px}</style>
+<div class="topbar">Interoperability</div>
+<div class="dashboard">
+  <div class="navbuttons">Productions</div><div class="navbuttons">Business Rules</div>
+  <div class="navbuttons">Data Transformations</div><div class="navbuttons">Lookup Tables</div>
+</div>
+<div class="content"><h2>Configure</h2><p>Stand-in for the shipped editor. Fetch is stubbed so the
+signed-in render path can be verified without credentials.</p></div>
+<script>
+// Stub only the Change Control state call; everything else passes through.
+var _f = window.fetch;
+window.fetch = function (u, o) {
+  if (String(u).indexOf('/api/hcccicd/state') >= 0) {
+    var body = JSON.parse(document.body.getAttribute('data-state'));
+    return Promise.resolve({ ok: true, status: 200, json: function () { return Promise.resolve(body); } });
+  }
+  return _f.apply(this, arguments);
+};
+var q = new URLSearchParams(location.search);
+document.body.setAttribute('data-state', q.get('state') || '{"workspace":null,"changes":[],"orphans":[]}');
+</script>
+<script src="/hcccicd/inject.js"></script>
