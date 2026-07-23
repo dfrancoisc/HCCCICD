@@ -287,6 +287,7 @@ function paint() {
     });
     var t = document.querySelector('.' + TAB_MARK);
     if (t && t.parentNode) t.parentNode.removeChild(t);
+    barSig = ''; tabSig = '';
     return;
   }
   paintTab();
@@ -310,10 +311,25 @@ function buildBar() {
   bar.querySelector('.act').addEventListener('click', function () { open('start'); });
 }
 
+/* Signature of what the bar currently says. Rewriting identical markup is not
+ * free: this function runs from a MutationObserver, so every write schedules
+ * another call, and the Agentic Integration Builder's launcher observes the
+ * same document and rebuilds its own toolbar buttons on each one. That loop is
+ * what stopped Clean Productions and Delete Artifacts responding — their click
+ * handlers were being torn off and reattached continuously. */
+var barSig = '';
+
 function paintBar() {
   buildBar();
   var bar = document.getElementById(BAR_ID);
-  if (!STATE.known) { bar.classList.remove('show'); return; }
+  if (!STATE.known) {
+    if (barSig !== 'hidden') { barSig = 'hidden'; bar.classList.remove('show'); }
+    return;
+  }
+
+  var sig = [STATE.open ? 'open' : 'none', STATE.ref, STATE.items, STATE.orphans].join('|');
+  if (sig === barSig) return;
+  barSig = sig;
 
   if (!STATE.open) {
     bar.classList.add('show');
@@ -489,9 +505,14 @@ function ensureTab() {
 /* Green when a change is open, amber when nothing is started. The tab is on
  * screen the whole time the user is building, so it is the cheapest possible
  * place to answer "am I covered right now?". */
+var tabSig = '';
+
 function paintTab() {
   var dot = document.querySelector('.' + TAB_MARK + ' .hcccicd-dot');
   if (!dot) return;
+  var sig = [STATE.known, STATE.open, STATE.ref, STATE.items].join('|');
+  if (sig === tabSig) return;
+  tabSig = sig;
   dot.className = 'hcccicd-dot' + (STATE.known ? (STATE.open ? ' on' : ' off') : '');
   var tab = document.querySelector('.' + TAB_MARK);
   if (tab) {
@@ -519,7 +540,20 @@ function schedule() {
 function start() {
   paint();
   ensureTab();
-  new MutationObserver(schedule).observe(document.body, { childList: true, subtree: true });
+
+  /* Ignore mutations inside our own elements. Combined with the signature
+   * checks above this makes the observer quiet: it fires when the editor
+   * re-renders, not when we paint. */
+  new MutationObserver(function (records) {
+    for (var i = 0; i < records.length; i++) {
+      var t = records[i].target;
+      if (t && t.closest && t.closest('#' + BAR_ID + ',#' + GUIDE_ID + ',#' + OVERLAY_ID + ',.' + TAB_MARK)) {
+        continue;
+      }
+      schedule();
+      return;
+    }
+  }).observe(document.body, { childList: true, subtree: true });
 
   /* Read the current state, then guide. The guide only appears when there is
    * genuinely nothing started — somebody mid-change is not interrupted. */

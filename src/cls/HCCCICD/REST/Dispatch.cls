@@ -228,6 +228,21 @@ ClassMethod GetState() As %Status
         }
 
         ; --- deletions --------------------------------------------------
+        ; Something built inside this change and then removed again — the
+        ; Delete Artifacts button is the usual way — is a net no-op, so it is
+        ; not reported. Its bookkeeping is dropped here rather than left to
+        ; accumulate, otherwise a rebuilt artifact of the same name inherits a
+        ; stale version number from work that no longer exists.
+        Set key = ""
+        For {
+            Set key = $order(^HCCCICD("rev", user, key))
+            Quit:key=""
+            Continue:$data(cur(key))
+            Continue:$get(^HCCCICD("base", user, key))'=""
+            Kill ^HCCCICD("rev", user, key), ^HCCCICD("seen", user, key)
+            Kill ^HCCCICD("orphan", user, key)
+        }
+
         Set key = ""
         For {
             Set key = $order(^HCCCICD("base", user, key))
