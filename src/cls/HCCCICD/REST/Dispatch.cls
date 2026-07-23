@@ -218,6 +218,7 @@ ClassMethod GetState() As %Status
             Continue:action=""
 
             Do ..BumpRevision(user, key, ts, action)
+            Do ..Remember(user, key, info)
 
             Set item = ..Describe(key, info, action, $get(^HCCCICD("rev", user, key), 1))
             If noWs || $data(^HCCCICD("orphan", user, key)) {
@@ -240,7 +241,7 @@ ClassMethod GetState() As %Status
             Continue:$data(cur(key))
             Continue:$get(^HCCCICD("base", user, key))'=""
             Kill ^HCCCICD("rev", user, key), ^HCCCICD("seen", user, key)
-            Kill ^HCCCICD("orphan", user, key)
+            Kill ^HCCCICD("orphan", user, key), ^HCCCICD("was", user, key)
         }
 
         Set key = ""
@@ -248,7 +249,12 @@ ClassMethod GetState() As %Status
             Set key = $order(^HCCCICD("base", user, key))
             Quit:key=""
             Continue:$data(cur(key))
-            Set item = ..Describe(key, $listbuild(..GuessType(key), key, "Deleted from the namespace", ""), "del",
+            Set was  = $get(^HCCCICD("was", user, key))
+            Set wType = $listget(was, 1)
+            Set wName = $listget(was, 2)
+            If wType = "" { Set wType = ..GuessType(key) }
+            If wName = "" { Set wName = key }
+            Set item = ..Describe(key, $listbuild(wType, wName, "Deleted from the namespace", ""), "del",
                                   $get(^HCCCICD("rev", user, key), 1))
             If noWs || $data(^HCCCICD("orphan", user, key)) {
                 Do orphans.%Push(item)
@@ -394,7 +400,7 @@ ClassMethod Reset() As %Status
         ; namespace never had a change", and reusing spent reference
         ; numbers would collide with changes already sent forward.
         Kill ^HCCCICD("base", user), ^HCCCICD("seen", user)
-        Kill ^HCCCICD("rev", user), ^HCCCICD("orphan", user)
+        Kill ^HCCCICD("rev", user), ^HCCCICD("orphan", user), ^HCCCICD("was", user)
         Kill ^HCCCICD("ws", user)
         Do ..Snapshot(user)
         Set tSC = ..GetState()
@@ -415,7 +421,21 @@ ClassMethod Snapshot(pUser As %String) [ Internal ]
         Quit:key=""
         Set ^HCCCICD("base", pUser, key) = $listget(info, 4)
         Set ^HCCCICD("seen", pUser, key) = $listget(info, 4)
+        Do ..Remember(pUser, key, info)
     }
+}
+
+/// Description: Keep the type and display name of everything we have seen.
+///
+/// Once an artifact is deleted its class is gone, so there is nothing left to
+/// read a type from. Guessing from the name got it wrong the moment it
+/// mattered: deleting AgenticInterop.TESTE.CICD.AlertRule and .RoutingRule
+/// reported both as productions, because neither name contains the substring
+/// the guess looked for. Recording it while the artifact still exists is the
+/// only way to describe its removal correctly.
+ClassMethod Remember(pUser As %String, pKey As %String, pInfo As %List) [ Internal ]
+{
+    Set ^HCCCICD("was", pUser, pKey) = $listbuild($listget(pInfo, 1), $listget(pInfo, 2))
 }
 
 /// Description: Flag everything currently reported as changed as unassigned.
