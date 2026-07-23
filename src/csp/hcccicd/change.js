@@ -1789,6 +1789,31 @@ function renderReview() {
  * 9. RENDER — requests, environments
  * ===================================================================== */
 
+/* Approve without a second person.
+ *
+ * There is nobody else on a single instance, so the approver and the submitter
+ * are the same. That is a simulation, and the note says so rather than
+ * recording a review that never happened — the audit trail is the point of the
+ * tool, and a fake sign-off would quietly poison it. */
+function approveLocally(r) {
+  if (!r) return;
+  var waiting = r.stages.filter(function (s) { return s.state === 'waiting'; })[0];
+  if (!waiting) return;
+  waiting.state = 'done';
+  waiting.at = stamp();
+  waiting.note = 'Approved by you — no second reviewer on this instance';
+  r.status = 'deployed';
+  r.target = waiting.env;
+}
+
+/* The environment a request has actually landed in. */
+function landedIn(r) {
+  if (!r) return '—';
+  var done = r.stages.filter(function (s) { return s.state === 'done'; }).slice(-1)[0];
+  var e = done ? envById(done.env) : null;
+  return e ? e.name : '—';
+}
+
 function renderRequests() {
   /* In live mode the list is server-held, so pull it before drawing. The
    * redraw below runs on whatever is cached; the fetch triggers a second one. */
@@ -1899,10 +1924,18 @@ function renderRequests() {
         'such in the history.</p>',
         [{ label: 'Cancel' },
          { label: 'Approve and deploy', kind: 'primary', onClick: function () {
-             if (!LIVE) { toast('Approved'); return; }
+             if (!LIVE) {
+               approveLocally(reqById(id));
+               renderRequests();
+               toast(id + ' approved — deployed to ' + landedIn(reqById(id)));
+               return;
+             }
              api('/requests/' + encodeURIComponent(id) + '/approve', { method: 'POST' })
                .then(function () { return DATA.liveRequests(); })
-               .then(function () { renderRequests(); toast(id + ' approved and deployed'); })
+               .then(function () {
+                 renderRequests();
+                 toast(id + ' approved — deployed to ' + landedIn(reqById(id)));
+               })
                .catch(function (e) { toast(e.message); });
            } }]);
     });
