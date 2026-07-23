@@ -133,10 +133,9 @@ ClassMethod UseNamespace() As %Status
             Set tSC = $$$ERROR($$$GeneralError, "Namespace " _ ns _ " does not exist")
             Quit
         }
-        If '##class(%SYS.Namespace).IsAvailable(ns) {
-            Set tSC = $$$ERROR($$$GeneralError, "Namespace " _ ns _ " is not available")
-            Quit
-        }
+        ; Attempt the switch rather than asking whether it is allowed:
+        ; %SYS.Namespace has no IsAvailable, and the protection check the user
+        ; actually needs is the one IRIS itself applies on assignment.
         Set $namespace = ns
     } Catch ex {
         Set tSC = ex.AsStatus()

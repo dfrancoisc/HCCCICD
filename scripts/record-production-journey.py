@@ -149,8 +149,20 @@ def scenes(host):
         ("shot", f"{tool}?live=1&demo=livefix", 6.0, "11",
          "One click adds it. Without this the deployment would have succeeded and the production would not have started."),
 
-        ("shot", f"{tool}?live=1&demo=livesubmit", 5.5, "12",
-         "Submitted, with both items. Approval and deployment happen from here."),
+        ("shot", f"{tool}?live=1&demo=livesubmit", 5.0, "12",
+         "Submitted, with both items. Nothing moved until this point."),
+
+        ("shot", f"{tool}?live=1&demo=liverequests", 5.5, "13",
+         "The change is live in Development and waiting for someone to approve it into Test."),
+
+        ("shot", f"{tool}?live=1&demo=liveapproved", 5.5, "14",
+         "Approved. The pipeline deploys it into Test on its own — there is nothing to press."),
+
+        ("shot", f"{tool}?live=1&demo=livepromote", 5.5, "15",
+         "Happy with Test? Send the same two items on to Production. You do not pick them again."),
+
+        ("shot", f"{tool}?live=1&demo=livedone", 6.0, "16",
+         "Production needs two approvals and a change window. That is the whole route, start to finish."),
 
         ("iris", CLEANUP, 0, "", ""),
         ("api", "reset", 0, "", ""),

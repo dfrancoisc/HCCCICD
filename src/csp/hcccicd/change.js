@@ -400,6 +400,8 @@ var TREATMENT = [
  * ===================================================================== */
 
 var S = {
+  idMode: 'auto',   /* how change references are produced */
+  nextId: '',       /* preview of the next generated one */
   /* Overwritten by the live whoami call. The fallback keeps the prototype
    * presentable when it is opened outside an authenticated editor session. */
   user: 'd.franco',
@@ -501,17 +503,19 @@ function api(path, opts) {
  * parse error. Inside the Interoperability editor the user is already signed in
  * and this never fires; standalone in a fresh tab it always does. */
 function authWall(retry) {
-  modal('Sign in to IRIS first',
-    '<p>Change Control reads your namespace directly, so it needs you signed in.</p>' +
-    '<p>Open the Management Portal, sign in, then come back and press ' +
-    '<strong>Retry</strong>.</p>' +
-    '<p class="muted">This does not happen when you open Change Control from the ' +
-    'Interoperability page — you are already signed in there.</p>',
-    [{ label: 'Open the portal', onClick: function () {
-         window.open('/csp/sys/UtilHome.csp', '_blank');
-         setTimeout(function () { authWall(retry); }, 400);
+  modal('Open this from the Interoperability page',
+    '<p>Change Control reads your namespace as you, so it needs to know who you ' +
+    'are. It gets that from the Interoperability editor, which passes on the ' +
+    'access token it already holds.</p>' +
+    '<p>Opened on its own in a browser tab there is no token to pass, which is ' +
+    'what has happened here. Go to <b>Interoperability</b> and use the ' +
+    '<b>Change Control</b> button in the toolbar.</p>' +
+    '<p class="muted">Signing in to the Management Portal will not help: it ' +
+    'scopes its session to its own pages and never sends it here.</p>',
+    [{ label: 'Take me there', kind: 'primary', onClick: function () {
+         window.top.location = '/ui/interop/index.html';
        } },
-     { label: 'Retry', kind: 'primary', onClick: retry }]);
+     { label: 'Retry', onClick: retry }]);
 }
 
 /* Fold a live /state response into the shape the screens already render. */
@@ -523,6 +527,9 @@ function applyState(st) {
 
   (st.changes || []).forEach(function (c) { CHANGES.push(normalise(c)); S.wsKeys.push(c.key); });
   (st.orphans || []).forEach(function (c) { CHANGES.push(normalise(c)); S.orphans.push(c.key); });
+
+  if (st.idMode) S.idMode = st.idMode;
+  if (st.nextId) S.nextId = st.nextId;
 
   if (st.workspace) {
     S.ws = {
@@ -592,6 +599,18 @@ var DATA = {
   refresh: function () {
     if (!LIVE) return Promise.resolve();
     return api('/state').then(function (st) { applyState(st); return st; });
+  },
+
+  /* LIVE only. Persist the reference mode for this namespace. */
+  setIdMode: function (mode) {
+    return api('/config', { method: 'PUT', body: JSON.stringify({ idMode: mode }) })
+      .then(function (cfg) {
+        S.idMode = cfg.idMode;
+        S.nextId = cfg.nextId;
+        renderIdMode();
+        renderRefField();
+        return cfg;
+      });
   },
 
   /* LIVE only. Declare the namespace as it stands to be the starting point. */
@@ -1182,7 +1201,51 @@ function adoptOrphans() {
   }
 }
 
+/* The reference field has two personalities. Numbered by the system: read-only,
+ * pre-filled with what you are about to be given, and clearly not your problem.
+ * Entered by the builder: an ordinary box for their ticket number. */
+function labelForMode(m) {
+  return m === 'auto' ? 'numbered by the system' : 'entered by the builder';
+}
+
+function renderIdMode() {
+  var a = $('#idmode-auto'), m = $('#idmode-manual');
+  if (!a || !m) return;
+  a.checked = S.idMode === 'auto';
+  m.checked = S.idMode !== 'auto';
+  var ex = $('#idmode-example');
+  if (ex) ex.textContent = S.nextId || (S.namespace + '-1');
+  $('#idmode-note').textContent = S.idMode === 'auto'
+    ? 'The next change started in ' + S.namespace + ' will be ' + (S.nextId || '—') + '.'
+    : 'Builders type their own reference. Numbering still runs underneath for anyone who leaves it blank.';
+}
+
+function renderRefField() {
+  var auto = S.idMode === 'auto';
+  var f = $('#ws-ref');
+  if (!f) return;
+
+  f.readOnly = auto;
+  f.classList.toggle('readonly', auto);
+  $('#ws-ref-req').textContent = auto ? 'generated for you' : 'required';
+
+  if (auto) {
+    f.value = S.nextId || '';
+    f.placeholder = S.nextId || '';
+    $('#ws-ref-hint').innerHTML =
+      'The system numbers your changes. Your administrator can switch this to ' +
+      'your own ticket references under Environments.';
+  } else {
+    if (f.value === S.nextId) f.value = '';
+    f.placeholder = 'INT-4821';
+    $('#ws-ref-hint').innerHTML =
+      'Your ticket number &mdash; ServiceNow, Jira, or the internal request ID. ' +
+      'Leave it blank and one will be generated for you.';
+  }
+}
+
 function renderWorkspace() {
+  renderRefField();
   renderOrphans();
   var baseSel = $('#ws-base');
   if (!baseSel.options.length) {
@@ -1766,6 +1829,7 @@ function reqById(id) {
 }
 
 function renderEnvironments() {
+  renderIdMode();
   $('#env-path').innerHTML = ENVIRONMENTS.map(function (e, i) {
     var node = '<div class="path-node' + (e.id === CURRENT_ENV ? ' is-here' : '') + '">' +
       '<div class="pn-name">' + esc(e.name) + (e.id === CURRENT_ENV ? ' — you are here' : '') + '</div>' +
@@ -1913,20 +1977,49 @@ function wire() {
 
   $('#btn-ws-start').addEventListener('click', function () {
     var ref = $('#ws-ref').value.trim();
+    /* In auto mode the server allocates it and ignores whatever is in the box,
+     * so an empty field is not an error. */
+    if (S.idMode === 'auto') ref = '';
     var title = $('#ws-title').value.trim();
-    if (!ref || !title) {
-      $('#ws-start-warn').textContent = 'Both a reference and a description are needed.';
-      $('#ws-ref').classList.toggle('bad', !ref);
-      $('#ws-title').classList.toggle('bad', !title);
+    if (!title) {
+      $('#ws-start-warn').textContent = 'Say what you are working on.';
+      $('#ws-title').classList.add('bad');
       return;
     }
+    $('#ws-title').classList.remove('bad');
     $('#ws-start-warn').textContent = '';
     DATA.startWorkspace(ref, title, $('#ws-base').value).then(function () {
       S.form.title = title;
       $('#pr-title').value = title;
       renderHeader();
       renderWorkspace();
-      toast('Change ' + ref + ' started — it is yours alone until you send it forward');
+      /* Report the reference the server actually allocated, not the one that
+       * was typed — in auto mode they are not the same thing. */
+      toast('Change ' + ((S.ws && S.ws.ref) || ref) +
+            ' started — it is yours alone until you send it forward');
+    }).catch(function (e) {
+      $('#ws-start-warn').textContent = e.message || 'Could not start the change.';
+    });
+  });
+
+  ['auto', 'manual'].forEach(function (mode) {
+    var el = $('#idmode-' + mode);
+    if (!el) return;
+    el.addEventListener('change', function () {
+      if (!el.checked) return;
+      var prev = S.idMode;
+      S.idMode = mode;
+      renderRefField();
+      renderIdMode();
+      if (!LIVE) { toast('Change references: ' + labelForMode(mode)); return; }
+      DATA.setIdMode(mode).then(function () {
+        toast('Change references: ' + labelForMode(mode));
+      }).catch(function (e) {
+        S.idMode = prev;
+        renderRefField();
+        renderIdMode();
+        toast('Could not save that: ' + e.message);
+      });
     });
   });
 
@@ -2187,6 +2280,24 @@ function runDemo(name) {
     livefix:      function () { return steps.livecheck().then(applyAllFixes); },
     livesubmit:   function () { return steps.livefix().then(function () {
                                   ackAll(); gotoStep(4); submit();
+                                }); },
+
+    /* The rest of the route: the request lands, gets approved, and the same
+     * items go on to the next environment without being picked again. */
+    liverequests: function () { return steps.livesubmit().then(function () {
+                                  clickModalPrimary();      /* "See my requests" */
+                                  go('requests');
+                                }); },
+    liveapproved: function () { return steps.liverequests().then(function () {
+                                  approveStage('test',
+                                    'Approved by m.silva, deployed automatically');
+                                }); },
+    livepromote:  function () { return steps.liveapproved().then(function () {
+                                  var b = document.querySelector('[data-adv]');
+                                  if (b) b.click();
+                                }); },
+    livedone:     function () { return steps.livepromote().then(function () {
+                                  clickModalPrimary();      /* "Send it on" */
                                 }); }
   };
 
@@ -2194,6 +2305,26 @@ function runDemo(name) {
   return fn ? fn() : done();
 
   function done() { return Promise.resolve(); }
+
+  /* Confirm whatever dialog is open, the way a user would. */
+  function clickModalPrimary() {
+    var b = document.querySelector('#modal-foot .btn.primary') ||
+            document.querySelector('#modal-foot .btn:last-child');
+    if (b) b.click();
+    $('#modal').hidden = true;
+  }
+
+  /* Stand in for the approver and the pipeline. Real approvals happen in
+   * GitLab; this is the one part of the route the prototype cannot perform
+   * for itself, so a recorded run fakes the outcome rather than the screen. */
+  function approveStage(envId, note) {
+    var r = REQUESTS[0];
+    if (!r) return;
+    r.stages.forEach(function (st) {
+      if (st.env === envId) { st.state = 'done'; st.at = stamp(); st.note = note; }
+    });
+    renderRequests();
+  }
 
   /* Resolve every blocking finding the way a user would — click each "Add …"
    * in turn, letting the check re-run and surface whatever the newly added
@@ -2253,6 +2384,12 @@ function boot() {
   if (p.get('ns')) S.namespace = p.get('ns');
   LIVE = p.get('live') === '1';
   $('#live-tools').hidden = !LIVE;
+  if (p.get('ns')) AUTH.namespace = p.get('ns');
+
+  /* Collect credentials from the launcher before anything touches the API.
+   * Calling first and authenticating second would show the wrong user for a
+   * beat, and would read the baseline from the wrong namespace. */
+  (LIVE ? askParentForAuth() : Promise.resolve()).then(function () {
 
   DATA.whoami().then(function (me) {
     if (me && me.username) {
@@ -2288,6 +2425,10 @@ function boot() {
           [{ label: 'Close' }]);
       });
     }
+
+    /* Fixture mode has no server to ask, but the numbering is part of what is
+     * being shown, so give it a plausible preview. */
+    if (!S.nextId) S.nextId = S.namespace + '-1';
 
     if (p.get('fresh')) {
       S.orphans = ORPHAN_KEYS.slice();
@@ -2331,6 +2472,8 @@ function boot() {
 
     maybeShowWelcome();
   });
+
+  });   /* end askParentForAuth().then */
 }
 
 if (document.readyState === 'loading') {

@@ -235,16 +235,26 @@ function poll() {
       return r.ok ? r.json() : null;
     })
     .then(function (j) {
-      if (!j) return;
-      STATE.known = true;
-      STATE.auth = true;
-      STATE.open = !!j.workspace;
-      STATE.ref = j.workspace ? j.workspace.ref : '';
-      STATE.items = (j.changes || []).length;
-      STATE.orphans = (j.orphans || []).length;
+      if (!j) {
+        /* No longer identified — a logout, an expired token, or the login
+         * screen. Forget everything: anything we keep showing from here is a
+         * statement about a session that no longer exists. */
+        STATE.known = false;
+        STATE.open = false;
+        STATE.ref = '';
+        STATE.items = 0;
+        STATE.orphans = 0;
+      } else {
+        STATE.known = true;
+        STATE.auth = true;
+        STATE.open = !!j.workspace;
+        STATE.ref = j.workspace ? j.workspace.ref : '';
+        STATE.items = (j.changes || []).length;
+        STATE.orphans = (j.orphans || []).length;
+      }
       paint();
     })
-    .catch(function () { });
+    .catch(function () { paint(); });
 }
 
 /* The editor and its login screen are the same document — Angular swaps the
@@ -263,9 +273,20 @@ function paint() {
   var login = onLoginScreen();
   document.body.classList.toggle(LOGIN_CLASS, login);
   if (login) {
-    /* Retract the guide if the session dropped out from under it. */
-    var g = document.getElementById(GUIDE_ID);
-    if (g) g.classList.remove('show');
+    /* Take our elements out of the document entirely rather than styling them
+     * away. Two earlier attempts failed here: removing a CSS class does
+     * nothing on the login screen, because the stylesheet is only injected
+     * alongside the tab and the tab is never built there — so the class it
+     * keys on does not exist. Removal cannot fail that way.
+     *
+     * buildBar and buildGuide recreate these on demand, so this costs nothing
+     * once the user is through. */
+    [BAR_ID, GUIDE_ID, OVERLAY_ID].forEach(function (id) {
+      var el = document.getElementById(id);
+      if (el && el.parentNode) el.parentNode.removeChild(el);
+    });
+    var t = document.querySelector('.' + TAB_MARK);
+    if (t && t.parentNode) t.parentNode.removeChild(t);
     return;
   }
   paintTab();
@@ -275,6 +296,7 @@ function paint() {
 /* ---------------- reminder bar ---------------- */
 
 function buildBar() {
+  /* Rebuilt from scratch after a login screen removed it. */
   if (document.getElementById(BAR_ID)) return;
   injectStyles();
   var bar = document.createElement('div');
@@ -441,6 +463,7 @@ function close() {
 }
 
 function ensureTab() {
+  if (onLoginScreen()) return;
   var dash = document.querySelector('.dashboard');
   if (!dash) return;
   if (dash.querySelector('.' + TAB_MARK)) return;
@@ -483,10 +506,18 @@ function paintTab() {
 var pending = null;
 function schedule() {
   if (pending) return;
-  pending = setTimeout(function () { pending = null; ensureTab(); }, 150);
+  pending = setTimeout(function () {
+    pending = null;
+    /* Angular swaps login and editor in place, so this is the only reliable
+     * moment to notice which one is on screen. */
+    if (onLoginScreen()) { paint(); return; }
+    ensureTab();
+    paint();
+  }, 150);
 }
 
 function start() {
+  paint();
   ensureTab();
   new MutationObserver(schedule).observe(document.body, { childList: true, subtree: true });
 

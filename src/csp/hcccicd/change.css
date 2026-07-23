@@ -242,6 +242,8 @@ input:focus, select:focus, textarea:focus {
   outline: none; border-color: var(--accent2);
 }
 input.bad, textarea.bad, select.bad { border-color: var(--err); }
+/* System-allocated, not yours to type in — look settled rather than disabled. */
+input.readonly { background: var(--bg3); color: var(--muted); cursor: default; }
 
 .warn { color: var(--warn); font-size: 12.5px; }
 
@@ -251,6 +253,23 @@ input.bad, textarea.bad, select.bad { border-color: var(--err); }
 .kv > div { display: block; }
 .kv dt { font-size: 11.5px; color: var(--muted); margin-bottom: 2px; }
 .kv dd { margin: 0; font-size: 13px; }
+
+/* ---------------- radio options ---------------- */
+
+.opt-list { display: flex; flex-direction: column; gap: 10px; }
+.opt {
+  display: flex; align-items: flex-start; gap: 11px;
+  padding: 12px 14px;
+  border: 1px solid var(--line2);
+  border-radius: 8px;
+  background: var(--bg3);
+  cursor: pointer;
+}
+.opt:hover { border-color: var(--accent2); }
+.opt input { margin-top: 2px; width: 15px; height: 15px; accent-color: var(--accent); flex: 0 0 auto; }
+.opt-name { display: block; font-size: 13.5px; font-weight: 600; }
+.opt-sub  { display: block; font-size: 12.5px; color: var(--muted); margin-top: 3px; max-width: 72ch; }
+.mono { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 12px; }
 
 /* ---------------- tables ---------------- */
 

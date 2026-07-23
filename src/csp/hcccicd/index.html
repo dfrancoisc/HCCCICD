@@ -321,9 +321,12 @@
         </p>
         <div class="form-grid">
           <label class="fld">
-            <span class="lbl">Reference <em>required</em></span>
+            <span class="lbl">Reference <em id="ws-ref-req">generated for you</em></span>
             <input type="text" id="ws-ref" placeholder="INT-4821" spellcheck="false">
-            <span class="hint">Your ticket number &mdash; ServiceNow, Jira, or the internal request ID.</span>
+            <span class="hint" id="ws-ref-hint">
+              The system numbers your changes. Your administrator can switch this
+              to your own ticket references under Environments.
+            </span>
           </label>
           <label class="fld">
             <span class="lbl">What are you working on? <em>required</em></span>
@@ -619,6 +622,39 @@
           </table>
         </div>
         <p class="note" id="env-admin-note"></p>
+      </div>
+
+      <div class="card">
+        <h3>Change references</h3>
+        <p class="card-lede">
+          How each change is identified. Applies to this namespace.
+        </p>
+        <div class="opt-list">
+          <label class="opt">
+            <input type="radio" name="idmode" value="auto" id="idmode-auto">
+            <span>
+              <span class="opt-name">Numbered by the system</span>
+              <span class="opt-sub">
+                Each change gets the namespace and the next number &mdash;
+                <code id="idmode-example">HSCUSTOM-1</code>, then
+                <span class="mono">-2</span>, and so on. Nothing to think about
+                and nothing to type.
+              </span>
+            </span>
+          </label>
+          <label class="opt">
+            <input type="radio" name="idmode" value="manual" id="idmode-manual">
+            <span>
+              <span class="opt-name">Entered by the builder</span>
+              <span class="opt-sub">
+                The builder types their own reference &mdash; a ServiceNow, Jira
+                or internal request number &mdash; so the change matches the
+                ticket it came from. Left blank, one is generated anyway.
+              </span>
+            </span>
+          </label>
+        </div>
+        <p class="note" id="idmode-note"></p>
       </div>
 
       <div class="card">
