@@ -207,6 +207,29 @@ flowchart TB
 6. The safety check runs entirely in the browser over the returned graph. The
    target-environment baseline it compares against is still a fixture.
 
+### Authentication — why the API allows unauthenticated callers
+
+Not a shortcut; there was no session to use.
+
+The Management Portal scopes its session cookie to `/csp/sys/`, so it is never
+sent to `/api/hcccicd`. The Interoperability editor runs with
+`AutheEnabled=64` — unauthenticated — and authenticates its own calls with a
+bearer token it issues internally. Neither login can hand a third web
+application a CSP session, so password-only authentication on `/api/hcccicd`
+produced a 401 on every request regardless of how many times the user signed in.
+
+`AutheEnabled=96` (password plus unauthenticated) matches the portal's own
+setting and makes the tool reachable from both places. When a session does
+identify the caller, `$username` is that user and their baseline follows them.
+When it does not, the caller is `UnknownUser`, the tool shows **Not signed in**
+in its header, and all work is tracked under that shared bucket.
+
+That is acceptable for a single-instance prototype and would not be for a real
+deployment. The production answer is the bearer token the Interoperability
+editor already issues: the launcher obtains it the way the Agentic Integration
+Builder's launcher does, and the API validates it instead of allowing
+unauthenticated access.
+
 ### Authentication
 
 `/api/hcccicd` authenticates as the calling user, because it reads their

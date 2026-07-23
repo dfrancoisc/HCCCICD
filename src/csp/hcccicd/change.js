@@ -906,6 +906,9 @@ function esc(s) {
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;');
 }
+/* "1 items" is the kind of thing that makes a prototype look unfinished. */
+function plural(n, word) { return n + ' ' + word + (n === 1 ? '' : 's'); }
+
 function stamp() {
   var d = new Date(), p = function (n) { return (n < 10 ? '0' : '') + n; };
   return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) +
@@ -968,12 +971,26 @@ function renderHeader() {
   p.textContent = env.name;
   p.className = 'pill env-' + env.id;
   $('#pill-ns').textContent = S.ws ? S.ws.usrns + ' (yours)' : S.namespace;
-  $('#pill-user').textContent = S.user;
+  /* The API allows unauthenticated callers, because neither the Management
+   * Portal (cookie scoped to /csp/sys/) nor the Interoperability editor (its
+   * own bearer token) can hand this application a session. When nobody is
+   * identified, say so plainly — the change list and the held items are keyed
+   * to whoever this is, so a silent "UnknownUser" would be genuinely
+   * misleading. */
+  var anon = !S.user || S.user === 'UnknownUser';
+  var pu = $('#pill-user');
+  pu.textContent = anon ? 'Not signed in' : S.user;
+  pu.classList.toggle('anon', anon);
+  pu.title = anon
+    ? 'No IRIS session identified this request, so your work is tracked under ' +
+      'the shared UnknownUser bucket. Sign in to the Management Portal in this ' +
+      'browser to have it tracked under your own name.'
+    : 'Signed in as ' + S.user;
 
   var dot = $('#ws-dot'), lab = $('#ws-label');
   if (S.ws) {
     dot.className = 'dot dot-ok';
-    lab.textContent = S.ws.ref + ' — ' + wsChanges().length + ' items changed';
+    lab.textContent = S.ws.ref + ' — ' + plural(wsChanges().length, 'item') + ' changed';
   } else {
     dot.className = 'dot dot-idle';
     lab.textContent = 'No change in progress';
@@ -1001,7 +1018,7 @@ function renderOrphans() {
   if (!S.orphans.length) { card.hidden = true; return; }
   card.hidden = false;
 
-  $('#orphan-count').textContent = S.orphans.length + ' items';
+  $('#orphan-count').textContent = plural(S.orphans.length, 'item');
   $('#orphan-lede').textContent =
     'You built these before starting a change. Nothing is lost — every save was ' +
     'captured. They just have no change to belong to yet, so they cannot be sent ' +
@@ -1150,7 +1167,7 @@ function renderWorkspace() {
   $('#ws-k-ref').textContent = S.ws.ref;
   $('#ws-k-started').textContent = S.ws.started;
   $('#ws-k-base').textContent = envById(S.ws.base).name + ' as it was when you started';
-  $('#ws-k-count').textContent = wsChanges().length + ' items';
+  $('#ws-k-count').textContent = plural(wsChanges().length, 'item');
   $('#ws-k-branch').innerHTML = '<code>' + esc(S.ws.branch) + '</code>';
   $('#ws-k-usrns').innerHTML = '<code>' + esc(S.ws.usrns) + '</code>';
 

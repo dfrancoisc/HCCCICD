@@ -69,6 +69,7 @@ body.tech .kv > div.tech-only { display: block !important; }
   padding: 2px 9px;
   white-space: nowrap;
 }
+#pill-user.anon { color: #fcd34d; border-color: #92400e; }
 #pill-env.env-dev  { color: #a5b4fc; border-color: #3730a3; }
 #pill-env.env-test { color: #fcd34d; border-color: #92400e; }
 #pill-env.env-prod { color: #fca5a5; border-color: #7f1d1d; }

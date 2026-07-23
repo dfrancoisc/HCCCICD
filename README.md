@@ -272,10 +272,17 @@ Three modes:
 `/hcccicd/index.html?live=1` reads the namespace instead of a fixture. Create a
 production in the Interoperability editor and it appears in the tool.
 
-You must be signed in to IRIS — the tool reads your namespace, so it
-authenticates as you. Opened from the Interoperability page you already are;
-opened standalone in a fresh tab you are not, and the tool says so with a link
-to the portal and a Retry.
+No sign-in step. `/api/hcccicd` allows unauthenticated callers, because neither
+the Management Portal (session cookie scoped to `/csp/sys/`) nor the
+Interoperability editor (its own bearer token) can hand a third web application
+a CSP session — password-only authentication meant a 401 on every request no
+matter how many times you signed in.
+
+When a session does identify you, `$username` is used and your baseline follows
+your name. When it does not, the header shows **Not signed in** and the work is
+tracked under a shared `UnknownUser` bucket. Fine for one instance; a real
+deployment would validate the editor's bearer token instead. See
+[Authentication](docs/DIAGRAMS.md#authentication--why-the-api-allows-unauthenticated-callers).
 
 Two header controls appear in this mode:
 

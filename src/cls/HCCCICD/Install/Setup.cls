@@ -99,12 +99,23 @@ ClassMethod CreateApiApp(pNamespace As %String = "") As %Status
         Set props("DispatchClass") = "HCCCICD.REST.Dispatch"
         Set props("Description")   = "Change Control live capture API"
         Set props("Enabled")       = 1
-        Set props("AutheEnabled")  = 32
-        ; Cookies on, scoped to the whole instance, so an existing
-        ; Management Portal or Interoperability editor login authenticates
-        ; these calls. The class keeps UseSession=0, so the session is used
-        ; to identify the caller and never to hold request state — that
-        ; combination is what avoids the iframe fetch deadlock.
+        ; 96 = password (32) + unauthenticated (64), matching the Management
+        ; Portal on this instance.
+        ;
+        ; Password-only looked more correct and was unusable. The Management
+        ; Portal scopes its session cookie to /csp/sys/, so it never reaches
+        ; /api/hcccicd; the Interoperability editor runs unauthenticated (64)
+        ; and authenticates its own calls with a bearer token instead. Neither
+        ; login can hand this application a session, so password-only meant a
+        ; 401 on every request no matter how many times the user signed in.
+        ;
+        ; Allowing unauthenticated makes the tool reachable from both. When a
+        ; session does identify the caller, $username is that user and the
+        ; per-user baseline follows them. When it does not, the caller is
+        ; UnknownUser and the tool says so in its header rather than pretending.
+        ; A real Health Connect Cloud deployment would put this behind the same
+        ; bearer token the editor already uses.
+        Set props("AutheEnabled")  = 96
         Set props("CookiePath")    = "/"
         Set props("UseCookies")    = 1
         Set props("CSRFToken")     = 0
