@@ -24,7 +24,9 @@ The first session is the one that goes wrong, so the instruction arrives
 unprompted. Sign in, open the Interoperability page, and the guide is already
 there — before a single production has been created.
 
-![Change Control onboarding in the Interoperability editor](docs/img/onboarding.gif)
+<video src="https://raw.githubusercontent.com/dfrancoisc/HCCCICD/main/docs/img/onboarding.mp4" controls muted playsinline width="100%"></video>
+
+<sub>Not playing? <a href="docs/img/onboarding.gif">Watch the animation instead</a></sub>
 
 A strip along the bottom of the editor holds the answer to "am I covered right
 now?" for as long as the user is building: amber and naming the risk while
@@ -40,7 +42,9 @@ Eight steps, from starting a change to sending it on to the next environment.
 The safety check is the part worth watching: five items become twelve because
 seven dependencies would have been missed.
 
-![Change Control walkthrough](docs/img/walkthrough.gif)
+<video src="https://raw.githubusercontent.com/dfrancoisc/HCCCICD/main/docs/img/walkthrough.mp4" controls muted playsinline width="100%"></video>
+
+<sub>Not playing? <a href="docs/img/walkthrough.gif">Watch the animation instead</a></sub>
 
 ### If you built something before starting a change
 
@@ -48,7 +52,9 @@ The common first-time case. Nothing is lost — every save was captured anyway �
 but nothing was holding those items either, so the tool checks whether a
 colleague edited the same one while yours was unassigned.
 
-![Recovering work built before a change was started](docs/img/recovery.gif)
+<video src="https://raw.githubusercontent.com/dfrancoisc/HCCCICD/main/docs/img/recovery.mp4" controls muted playsinline width="100%"></video>
+
+<sub>Not playing? <a href="docs/img/recovery.gif">Watch the animation instead</a></sub>
 
 > Both are recorded from the seeded demo (`?demo=`), so they show a populated
 > change with a colleague holding items. A real first session starts empty.
