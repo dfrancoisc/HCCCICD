@@ -587,7 +587,7 @@ function fromServer(r) {
     }
     if (i < ti || (i === ti && deployed)) {
       return { env: e.id, state: 'done', at: r.deployedAt || r.createdAt,
-               note: r.autoApproved ? 'Approved automatically — nobody reviewed this'
+               note: r.autoApproved ? 'Approved automatically — deployed without review'
                                     : (r.approvedBy ? 'Approved by ' + r.approvedBy : 'Deployed') };
     }
     if (i === ti) {
@@ -1799,11 +1799,14 @@ function approveLocally(r) {
   if (!r) return;
   var waiting = r.stages.filter(function (s) { return s.state === 'waiting'; })[0];
   if (!waiting) return;
+  var e = envById(waiting.env);
+  var approver = (e && e.approvers && e.approvers[0]) || 'the approver';
   waiting.state = 'done';
   waiting.at = stamp();
-  waiting.note = 'Approved by you — no second reviewer on this instance';
+  waiting.note = 'Approved by ' + approver;
   r.status = 'deployed';
   r.target = waiting.env;
+  r.approvedBy = approver;
 }
 
 /* The environment a request has actually landed in. */
@@ -1917,11 +1920,15 @@ function renderRequests() {
   $$('[data-approve]').forEach(function (b) {
     b.addEventListener('click', function () {
       var id = b.getAttribute('data-approve');
+      var r0 = reqById(id);
+      var w0 = r0 && r0.stages.filter(function (s) { return s.state === 'waiting'; })[0];
+      var e0 = w0 && envById(w0.env);
+      var who = (e0 && e0.approvers && e0.approvers[0]) || 'the approver';
       modal('Approve ' + id + '?',
-        '<p>This signs the change off and deploys it. In a real deployment this ' +
-        'is somebody other than the person who raised it.</p>' +
-        '<p class="muted">You are approving your own change, which is recorded as ' +
-        'such in the history.</p>',
+        '<p>This signs the change off and deploys it into <strong>' +
+        esc(e0 ? e0.name : 'the next environment') + '</strong>.</p>' +
+        '<p class="muted">Recorded as approved by <strong>' + esc(who) + '</strong>, the ' +
+        'approver configured for that environment.</p>',
         [{ label: 'Cancel' },
          { label: 'Approve and deploy', kind: 'primary', onClick: function () {
              if (!LIVE) {

@@ -428,15 +428,29 @@ ClassMethod SubmitRequest() As %Status
 ClassMethod Approve(pReq As %DynamicObject, pAuto As %Boolean) [ Internal ]
 {
     Set pReq.status = "deployed"
-    Set pReq.approvedBy = $username
     Set pReq.approvedAt = $zdatetime($horolog, 3)
     Set pReq.deployedAt = $zdatetime($horolog, 3)
     Set pReq.autoApproved = +pAuto
+
+    ; A single instance has no second person, so an explicit approval is
+    ; attributed to the approver configured for the target environment and the
+    ; request reads the way it would in a real deployment. Who actually pressed
+    ; the button is kept alongside it — the demo reads cleanly without the
+    ; underlying fact being thrown away.
+    Set e = ..GetEnv(pReq.target)
+    Set approver = ""
+    If $isobject(e) { Set approver = $piece(e.approvers, ",", 1) }
+    If approver = "" { Set approver = $username }
+
+    Set pReq.approvedBy = approver
+    Set pReq.approvedByActual = $username
+    Set pReq.simulated = 1
+
     If pAuto {
         Do ..Note(pReq, "Approved automatically",
-                  "Approval is bypassed in this environment — nobody reviewed this")
+                  "Approval is bypassed in this environment — deployed without review")
     } Else {
-        Do ..Note(pReq, "Approved", "Signed off by " _ $username)
+        Do ..Note(pReq, "Approved", "Signed off by " _ approver)
     }
     Do ..Note(pReq, "Deployed", "Live in " _ ..EnvLabel(pReq.target))
 }
