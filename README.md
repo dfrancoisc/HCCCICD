@@ -21,7 +21,7 @@ something buildable, not a wish.
 ## Watch it — one run, start to finish
 
 Sign in, start a change, create a production, put it under source control,
-and move it to the next environment. Sixteen steps, one take, no cuts.
+and move it to the next environment. Fifteen steps, one take, no cuts.
 
 ![Creating a production and promoting it, end to end](docs/img/production-journey.gif)
 
@@ -31,25 +31,32 @@ and move it to the next environment. Sixteen steps, one take, no cuts.
 |---|---|
 | **1** | Sign in to Health Connect Cloud |
 | **2–3** | Open Interoperability — the guide appears before anything is touched, and an amber strip says nothing is started |
-| **4–5** | Start a change: a ticket reference and one line. You now have a private copy and a hold on what you touch |
+| **4–5** | Start a change: one line saying what you are doing. The reference is generated — `HSCUSTOM-1`, the namespace and the next number |
 | **6** | Back in the editor the strip is green. Go and build |
 | **7** | Create an empty production — it appears on its own, version 1 |
 | **8** | Add a business service — production moves to version 2 |
 | **9–10** | Send it to Test. Tick the production, forget the service — the safety check blocks it |
 | **11–12** | One click adds the service. Submit |
-| **13–14** | Deployed to Development, approved into Test |
-| **15–16** | Send the same items on to Production — no re-picking. Two approvals and a change window |
+| **13** | Approval is bypassed on this instance, so it is signed off and deployed to Test at once — and labelled as such in its history |
+| **14** | Send the same two items on to Production. They are not picked again |
+| **15** | Where the next target is configured: the route, who approves at each stop, and whether approval can be bypassed |
 
 **This is not a mock-up.** Between frames the recorder resets the baseline,
 starts a change through the API, and creates a real production and a real
 business service in the namespace. What the tool shows is that namespace read
 back: version 1 on the empty production, version 2 once the service is wired in,
 and a safety check that finds the dependency by parsing the production's own
-`ProductionDefinition`.
+`ProductionDefinition`. The change request, its approval and its promotion are
+server-held too — the pipeline in frames 13 and 14 is real state, not a drawing.
+
+The one concession: the capture API authenticates as a real user, and headless
+Chrome has no way to obtain a session, so the recorder widens
+`/api/hcccicd` for the duration and restores it in a `finally` block. That is
+also why the header reads **Not signed in** in those frames.
 
 Steps 9–11 are the reason the tool exists. The builder ticks the production and
 forgets the business service — the single most common way a promotion fails. The
-check sees `Demo.Lab.Service.LabResultIn` referenced and not selected, and
+check sees `Demo.Generic.InboundService` referenced and not selected, and
 refuses to submit until it is added. Without it the deployment reports success
 and the production does not start in Test.
 

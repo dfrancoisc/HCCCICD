@@ -21,6 +21,7 @@ Everything from "start a change" onwards is the real tool against real IRIS.
 """
 
 import argparse
+import json
 import os
 import subprocess
 import sys
@@ -51,8 +52,8 @@ FPS_HINT = 10
 # workflow, not the interface.
 # --------------------------------------------------------------------------
 
-PRODUCTION = "Demo.Lab.LabProduction"
-SERVICE = "Demo.Lab.Service.LabResultIn"
+PRODUCTION = "Demo.Generic.Production"
+SERVICE = "Demo.Generic.InboundService"
 
 CREATE_PRODUCTION = f"""
 zn "{{ns}}"
@@ -125,6 +126,7 @@ def scenes(host):
     harness = f"{host}/hcccicd/_harness/editor.html"
     return [
         ("api", "reset", 0, "", ""),
+        ("api", "bypass", 0, "", ""),
 
         ("shot", f"{host}/csp/sys/UtilHome.csp", 4.5, "1",
          "Sign in to Health Connect Cloud. Nothing here is different from any other day."),
@@ -168,17 +170,18 @@ def scenes(host):
         ("shot", tool_url(host, "live=1&demo=livesubmit"), 5.0, "12",
          "Submitted, with both items. Nothing moved until this point."),
 
-        ("shot", tool_url(host, "live=1&demo=liverequests"), 5.5, "13",
-         "The change is live in Development and waiting for someone to approve it into Test."),
+        ("api", "submit", 0, "", ""),
 
-        ("shot", tool_url(host, "live=1&demo=liveapproved"), 5.5, "14",
-         "Approved. The pipeline deploys it into Test on its own — there is nothing to press."),
+        ("shot", tool_url(host, "live=1&screen=requests"), 6.0, "13",
+         "Submitted. Approval is bypassed on this instance, so it is signed off and deployed to Test at once — and labelled as such, permanently."),
 
-        ("shot", tool_url(host, "live=1&demo=livepromote"), 5.5, "15",
-         "Happy with Test? Send the same two items on to Production. You do not pick them again."),
+        ("api", "promote", 0, "", ""),
 
-        ("shot", tool_url(host, "live=1&demo=livedone"), 6.0, "16",
-         "Production needs two approvals and a change window. That is the whole route, start to finish."),
+        ("shot", tool_url(host, "live=1&screen=requests"), 6.0, "14",
+         "Send the same two items on to Production. They are not picked again and the safety check runs against the new target."),
+
+        ("shot", tool_url(host, "live=1&screen=environments"), 6.5, "15",
+         "Where the next target is configured: the route, who approves at each stop, and whether approval can be bypassed at all."),
 
         ("iris", CLEANUP, 0, "", ""),
         ("api", "reset", 0, "", ""),
@@ -235,16 +238,57 @@ def iris(container, namespace, script):
         os.unlink(path)
 
 
+def set_auth(container, namespace, value):
+    """Widen or restore /api/hcccicd's authentication for the recording."""
+    body = ('zn "%SYS"\n'
+            'kill p do ##class(Security.Applications).Get("/api/hcccicd",.p)\n'
+            'set p("AutheEnabled")=' + str(value) + '\n'
+            'set sc=##class(Security.Applications).Modify("/api/hcccicd",.p)\n'
+            'write !,"AutheEnabled=' + str(value) + ' sc=",+sc,!')
+    iris(container, namespace, body)
+
+
 def api(host, what):
-    auth = ["-H", f"Authorization: {os.environ['HCCCICD_AUTH']}"]
+    # Anonymous on purpose: while recording, /api/hcccicd is widened to allow
+    # unauthenticated callers, and the browser reaches it as UnknownUser. The
+    # recorder has to be the same user or the frames show somebody else's state.
+    auth = ["-H", f"X-IRIS-Namespace: {os.environ.get('HCCCICD_NS', '')}"]
     if what == "reset":
         subprocess.run(["curl", "-s", "-o", "/dev/null", "-X", "POST", *auth,
                         f"{host}/api/hcccicd/reset"], check=True)
     elif what == "start":
+        # No reference supplied on purpose: the system numbers it, which is
+        # the default the recording is meant to show.
         subprocess.run(["curl", "-s", "-o", "/dev/null", "-X", "POST", *auth,
                         "-H", "Content-Type: application/json",
-                        "-d", '{"ref":"INT-5104","title":"Lab results interface"}',
+                        "-d", '{"title":"Add a new production"}',
                         f"{host}/api/hcccicd/workspace"], check=True)
+    elif what == "bypass":
+        subprocess.run(["curl", "-s", "-o", "/dev/null", "-X", "PUT", *auth,
+                        "-H", "Content-Type: application/json",
+                        "-d", '{"approvalRequired":0}',
+                        f"{host}/api/hcccicd/config"], check=True)
+    elif what == "submit":
+        # Send everything the tool currently reports as changed, so the request
+        # matches what the previous frames showed being selected.
+        state = subprocess.run(["curl", "-s", *auth, f"{host}/api/hcccicd/state"],
+                               check=True, capture_output=True, text=True)
+        keys = [c["key"] for c in json.loads(state.stdout).get("changes", [])]
+        body = json.dumps({
+            "title": "Add a new production", "target": "test", "items": keys,
+            "what": "A new production and the business service it points at.",
+            "why": "Standing up the interface for the new feed."})
+        subprocess.run(["curl", "-s", "-o", "/dev/null", "-X", "POST", *auth,
+                        "-H", "Content-Type: application/json", "-d", body,
+                        f"{host}/api/hcccicd/requests"], check=True)
+    elif what == "promote":
+        reqs = subprocess.run(["curl", "-s", *auth, f"{host}/api/hcccicd/requests"],
+                              check=True, capture_output=True, text=True)
+        rs = json.loads(reqs.stdout).get("requests", [])
+        if rs:
+            subprocess.run(["curl", "-s", "-o", "/dev/null", "-X", "POST", *auth,
+                            f"{host}/api/hcccicd/requests/{rs[0]['id']}/promote"],
+                           check=True)
 
 
 def wrap(draw, text, fnt, max_w):
@@ -298,15 +342,6 @@ def main():
     # environment so nothing lands in the repository:
     #
     #   HCCCICD_USER=_SYSTEM HCCCICD_PASSWORD=... ./scripts/record-production-journey.py
-    user = os.environ.get("HCCCICD_USER")
-    pwd = os.environ.get("HCCCICD_PASSWORD")
-    if not (user and pwd):
-        sys.exit("set HCCCICD_USER and HCCCICD_PASSWORD — the capture API "
-                 "authenticates as a real user and the recorder has to pass "
-                 "that through the way the editor does")
-    import base64
-    os.environ["HCCCICD_AUTH"] = "Basic " + base64.b64encode(
-        f"{user}:{pwd}".encode()).decode()
     os.environ.setdefault("HCCCICD_NS", args.namespace)
 
     os.makedirs(os.path.join("docs", "img"), exist_ok=True)
@@ -315,6 +350,17 @@ def main():
     tmp = tempfile.mkdtemp(prefix="hcccicd-journey-")
     n = 0
     try:
+        # The capture API requires a signed-in user and headless Chrome cannot
+        # obtain a session, so open it for the duration and prove it took —
+        # a silent failure here records the sign-in dialog on every frame.
+        set_auth(args.container, args.namespace, 96)
+        probe = subprocess.run(["curl", "-s", "-o", "/dev/null", "-w", "%{http_code}",
+                                f"{args.host}/api/hcccicd/whoami"],
+                               capture_output=True, text=True)
+        if probe.stdout.strip() != "200":
+            sys.exit(f"Could not open the API for recording (HTTP {probe.stdout.strip()}). "
+                     "Nothing was left changed.")
+
         for kind, target, secs, step, text in scenes(args.host):
             if kind == "iris":
                 print("  ~ iris: applying change to the namespace")
@@ -347,6 +393,7 @@ def main():
         print(f"  -> {out}  ({os.path.getsize(out) / 1_048_576:.1f} MB, "
               f"{sum(durations) / 1000:.0f}s)")
     finally:
+        set_auth(args.container, args.namespace, 32)
         import shutil
         shutil.rmtree(tmp, ignore_errors=True)
 
