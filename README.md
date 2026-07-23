@@ -144,6 +144,10 @@ rather than deployed into.
 
 ## Documentation
 
+- **[Build specification](docs/SPECIFICATION.md)** — the handover document for a
+  development team building the real tool: persona, user stories, numbered
+  requirements, integration architecture, and an honest account of what the
+  prototype settled and what it did not
 - [Design and behaviour](docs/CHANGE_CONTROL.md) — every screen, the dependency
   rules, the promotion rules, and the live capture layer
 - [Diagrams](docs/DIAGRAMS.md) — user journey, architecture, and the REST surface
