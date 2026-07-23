@@ -1,0 +1,76 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="Cache" version="25">
+<Document name="hcccicd.ZPM">
+<Module>
+<Name>hcccicd</Name>
+<Version>1.0.0</Version>
+<Description>Change Control for Health Connect Cloud — a change-promotion tool for the Integration Builder: the person who builds and maintains interfaces, is accountable for them working, and is not a developer. Captures every artifact change in a namespace and versions it automatically; holds the items a builder is working on so two people cannot silently overwrite each other; walks the dependency graph before a change is promoted and blocks the deployment when the production points at a business host that was not selected; and carries the change through a configurable Development to Test to Production path with per-environment approvers. Adds one button to the shipped Interoperability editor and a guide that appears before the first change is made. Coexists with the Agentic Integration Builder on the same page.</Description>
+<Keywords>iris healthconnect cicd source-control change-control promotion deployment interop production dtl bpl routing-rule governance</Keywords>
+<Packaging>module</Packaging>
+<SourcesRoot>src/cls</SourcesRoot>
+<SystemRequirements>InterSystems IRIS for Health or Health Connect 2023.1 or later</SystemRequirements>
+
+<!-- ObjectScript classes: the capture/promotion REST API and the installer. -->
+<Resource Name="HCCCICD.PKG"/>
+
+<!-- Static UI bundle for /hcccicd/.
+     Authentication mirrors the Interoperability editor it launches from:
+     unauthenticated is permitted for the static assets so the page can load,
+     and the API below is what actually enforces identity. -->
+<CSPApplication
+    Url="/hcccicd"
+    Path="${cspdir}hcccicd"
+    DeployPath="hcccicd"
+    SourcePath="${root}src/csp/hcccicd"
+    Recurse="1"
+    AuthenticationMethods="96"
+    PasswordAuthEnabled="1"
+    UnauthenticatedEnabled="1"
+    UseCookies="2"
+    AutoCompile="0"
+    ServeFiles="1"
+    ServeFilesTimeout="0"
+    CookiePath="/"
+    Description="Change Control static UI (tool + launcher). ServeFilesTimeout=0 so the CSP gateway does not cache a stale bundle after an upgrade."
+/>
+
+<!-- Capture and promotion API.
+     JWTAuthEnabled + GroupById=%ISCMgtPortal so the JSON Web Token the
+     Interoperability editor already holds authenticates here too, and the
+     change list, the held items and the baseline are attributed to the real
+     user. Password auth alone cannot work: the Management Portal scopes its
+     session cookie to /csp/sys/ and the editor holds no session at all, so no
+     login on the instance can hand this application one.
+     UseCookies=0 and no CSRF token: the tool runs in an iframe and a CSP
+     session on these routes deadlocks the request. -->
+<CSPApplication
+    Url="/api/hcccicd"
+    DispatchClass="HCCCICD.REST.Dispatch"
+    AuthenticationMethods="32"
+    PasswordAuthEnabled="1"
+    UnauthenticatedEnabled="0"
+    JWTAuthEnabled="1"
+    GroupById="%ISCMgtPortal"
+    UseCookies="0"
+    CookiePath="/"
+    UseSession="0"
+    Description="Change Control capture and promotion API — authenticates with the Interoperability editor's own JSON Web Token"
+/>
+
+<!-- Post-install: add the Change Control button to the shipped
+     Interoperability editor, and make the CSP gateway stop caching the
+     static bundle. Idempotent, and it backs the editor page up before
+     touching it. -->
+<Invoke Class="HCCCICD.Install.Setup" Method="Apply">
+  <Arg>${namespace}</Arg>
+</Invoke>
+
+<!-- Uninstall: restore the editor page from its backup and remove the
+     applications. The artifacts a builder captured are left alone. -->
+<Invoke Class="HCCCICD.Install.Setup" Method="Revert" Phase="Unconfigure">
+  <Arg>1</Arg>
+</Invoke>
+
+</Module>
+</Document>
+</Export>
