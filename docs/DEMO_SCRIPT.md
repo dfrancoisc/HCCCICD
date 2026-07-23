@@ -6,6 +6,10 @@ Eight minutes. Two points to land: **nobody can overwrite your work**, and
 Open the Interoperability editor, click **Change Control**. Or go straight to
 `/hcccicd/index.html`.
 
+There is a second, shorter demo below for the question you will always be
+asked — *what if they started building before turning any of this on?* Run it
+first if your audience is sceptical, because it is the one that earns trust.
+
 ---
 
 ## Setting the scene (30 seconds)
@@ -179,6 +183,46 @@ Toggle **Show the technical names** in the left rail.
 > "Maria never has to know that. But when she wants to, it is one toggle away —
 > and when she talks to your platform team, they are talking about the same
 > thing she is."
+
+---
+
+## The recovery demo (3 minutes)
+
+Open `/hcccicd/index.html?fresh=1`. Clear the welcome first if you have already
+dismissed it — it is worth showing.
+
+> "Different Maria. She has been building for two days and has never opened this
+> tool. Somebody has just told her she has to send her work to Test. This is the
+> first thing she sees."
+
+The welcome appears, with the green callout at the bottom.
+
+> "*You have work that is not in a change yet. Nothing is lost.* That sentence is
+> the whole design. Capture never depended on her remembering to press a button —
+> every save was recorded whether or not she had started a change."
+
+Click **Get started**. **Work not in a change yet**, seven items.
+
+> "Everything she built. The service, the operation, the transform, the router,
+> the lookup table she made in the CSV wizard, the schema, the settings. All
+> captured, all versioned, none of it belonging to anything yet."
+
+> "What she is missing is not the work. It is two smaller things: a label saying
+> which piece of work this is, and a hold on those items."
+
+Click **Check nobody else touched these**.
+
+> "And this is the second one biting. While her work was unassigned, nothing was
+> holding the system default settings, and her colleague changed them too. One of
+> them has the other's edit. The tool will not let her discover that in Test."
+
+Fill in the reference. Click **Put this into a change**.
+
+> "Ten seconds. It is now a proper change, the items are held for her, and she
+> can send it forward exactly like anyone who did it in the right order."
+
+> "The message is not 'you did it wrong'. It is 'we had you covered, here is the
+> fix, and here is why doing it first is better next time'."
 
 ---
 

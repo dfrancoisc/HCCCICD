@@ -284,6 +284,95 @@ var REQUESTS = [
   }
 ];
 
+/* Work that was saved before any change was started.
+ *
+ * This is the recovery case, and it matters more than it looks. Capture never
+ * depended on the user remembering to start a change — Embedded Git exports
+ * every artifact to the repository working tree on save, whatever branch
+ * happens to be checked out. So the work is not lost; what is missing is the
+ * label saying which piece of work it belongs to, and the edit claim that
+ * would have stopped somebody else touching the same item.
+ *
+ * Adopting it creates the feature branch now and carries the uncommitted
+ * working-tree changes onto it.
+ */
+var ORPHAN_KEYS = [
+  'Demo.Lab.Service.LabResultIn',
+  'Demo.Lab.Operation.LISResultOut',
+  'Demo.Lab.DTL.ORUR01ToLISResult',
+  'Demo.Lab.Rule.LabRouter',
+  'LabTestCodes',
+  'Custom_2.5.1_LIS',
+  'HSCUSTOM System Default Settings'
+];
+
+/* The real cost of not starting a change first: nothing was holding these
+ * items, so somebody else may have edited the same artifact meanwhile. This is
+ * what the collision check surfaces before the user commits to anything. */
+var COLLISIONS = {
+  'HSCUSTOM System Default Settings': {
+    by: 'm.silva',
+    at: '2026-07-22 16:40',
+    what: 'changed the retry interval on EMRAdtOut and added two radiology settings'
+  }
+};
+
+/* Guide content. */
+var FAQ = [
+  { q: 'Do I have to remember to do anything while I am building?',
+    a: 'No. Once a change is started, every save is captured and versioned on its ' +
+       'own. There is no export step and no "add to source control" action. Even ' +
+       'if you forget to start a change, the saves are still captured — see the ' +
+       'last question.' },
+  { q: 'Does it matter which tool I used to make the change?',
+    a: 'No. The Interoperability editor, the Management Portal, the CSV record ' +
+       'wizard, the rule editor and the Agentic Integration Builder are all ' +
+       'captured the same way. Changes the agent made for you are tagged so you ' +
+       'can see what it did in your name.' },
+  { q: 'What if I only want to send half of what I built?',
+    a: 'That is normal. Tick what belongs to this change and leave the rest; it ' +
+       'stays in your workspace for the next one. The safety check will tell you ' +
+       'if the half you picked cannot stand on its own.' },
+  { q: 'What if somebody else needs to edit something I am holding?',
+    a: 'They will see that you have it and can ask you to release it. Nothing is ' +
+       'taken from you automatically. If you release an item, the edits you ' +
+       'already made stay in your change — you just give up the right to make more.' },
+  { q: 'Will my development host names and ports end up in Production?',
+    a: 'No. System default settings are stored separately per environment, so each ' +
+       'one keeps its own host names, ports and directories. The safety check shows ' +
+       'you a side-by-side and flags any setting that has no value in the target.' },
+  { q: 'What happens to passwords and client secrets?',
+    a: 'They never leave the environment they were entered in. The credential or ' +
+       'OAuth entry is created in the target empty, and somebody with access there ' +
+       'fills it in once. The safety check reminds you every time.' },
+  { q: 'Can I undo a change after it has gone in?',
+    a: 'Yes. Every deployment records exactly which version of each item went in, ' +
+       'so any previous point can be restored. You are asked how to undo your change ' +
+       'when you submit it, and the default is to roll back to the previous version.' },
+  { q: 'I built things before I started a change. Have I lost them?',
+    a: 'No, and you can still package them up. Capture does not depend on you ' +
+       'starting a change — every save was recorded. Open My change and the work ' +
+       'appears under "Work not in a change yet". Tick what belongs together, give ' +
+       'it a reference, and put it into a change. The only thing you missed is the ' +
+       'hold on those items, so the tool checks whether anyone else edited the same ' +
+       'thing while yours was unassigned and tells you before you go any further.' }
+];
+
+var GLOSSARY = [
+  ['Your change / your workspace',        'A feature branch cut from the live branch, checked out in your own user namespace'],
+  ['Started a change',                    'git checkout -b interface/<user>/<reference> live'],
+  ['Captured and versioned automatically','Embedded Git exports the artifact to a file on save; the version is the commit count for that file'],
+  ['Refresh from Production',             'Sync — commit, rebase onto live, update the namespace, push'],
+  ['Work not in a change yet',            'Uncommitted working-tree changes with no feature branch of their own'],
+  ['Put this into a change',              'Create the branch now; the uncommitted changes carry across'],
+  ['Items held for you',                  'Edit claims in the lock table, one artifact one editor'],
+  ['Change request',                      'A GitLab merge request from your branch to the target environment branch'],
+  ['Send forward / send on',              'A further merge request from the same branch to the next protected branch'],
+  ['Deploys itself',                      'The CI/CD pipeline loads the protected branch into the protected namespace'],
+  ['Environment',                         'A Health Connect Cloud deployment plus its protected namespace and branch'],
+  ['Safety check',                        'Dependency closure over the selection, compared with the target branch and its deployment record']
+];
+
 /* Per-environment handling rules shown on the Environments screen. */
 var TREATMENT = [
   { kind: 'System default settings',
@@ -318,6 +407,10 @@ var S = {
   tech: false,
   screen: 'workspace',
   ws: null,              // { ref, title, base, started, branch, usrns }
+  wsKeys: [],            // change keys that belong to the open change
+  orphans: [],           // change keys captured but not in any change yet
+  orphanPick: {},        // key -> true, selection in the adopt card
+  collisionsChecked: false,
   step: 1,
   picked: {},            // key -> true
   form: { target: '', title: '', what: '', why: '', risk: 'medium', window: 'next', rollback: '' },
@@ -365,6 +458,37 @@ var DATA = {
    * artifact type and the editor that produced each change. Embedded Git
    * exports on save, so this list needs no user action to populate. */
   changes: function () { return Promise.resolve(CHANGES); },
+
+  /* MOCK. Real: uncommitted working-tree changes in the user namespace that do
+   * not belong to a feature branch — the user built before starting a change. */
+  orphans: function () { return Promise.resolve(S.orphans); },
+
+  /* MOCK. Real: for each orphaned artifact, ask whether the base branch has a
+   * commit touching the same file that is newer than the local modification.
+   * That is the overwrite the missing edit claim failed to prevent. */
+  checkCollisions: function (keys) {
+    var hits = [];
+    keys.forEach(function (k) {
+      if (COLLISIONS[k]) hits.push({ key: k, info: COLLISIONS[k] });
+    });
+    return Promise.resolve(hits);
+  },
+
+  /* MOCK. Real: create the feature branch now — the uncommitted working-tree
+   * changes carry across — then register the edit claims retroactively. */
+  adopt: function (keys, ref, title) {
+    return DATA.startWorkspace(ref, title, 'prod').then(function (ws) {
+      keys.forEach(function (k) {
+        if (S.wsKeys.indexOf(k) < 0) S.wsKeys.push(k);
+        S.orphans = S.orphans.filter(function (o) { return o !== k; });
+        var c = byKey(k);
+        if (c && !S.claims.some(function (x) { return x.item === k; })) {
+          S.claims.push({ item: k, type: c.type, by: 'me', since: stamp(), state: 'held' });
+        }
+      });
+      return ws;
+    });
+  },
 
   /* MOCK. Real: a lock table keyed by artifact, written when an editor opens
    * an item and released on promotion or abandon. */
@@ -422,6 +546,15 @@ function byKey(k) {
   return null;
 }
 
+/* Is this artifact part of the change the user currently has open? Only these
+ * can be ticked, so only these can produce a one-click "add it" fix. */
+function inWorkspace(k) { return S.wsKeys.indexOf(k) >= 0; }
+
+/* The change set the user is working on, in declaration order. */
+function wsChanges() {
+  return CHANGES.filter(function (c) { return inWorkspace(c.key); });
+}
+
 function analyse(pickedKeys, targetId, baseline) {
   var findings = [];
   var sel = {};
@@ -448,7 +581,9 @@ function analyse(pickedKeys, targetId, baseline) {
 
       var inSel = !!sel[req];
       var inTgt = Object.prototype.hasOwnProperty.call(baseline, req);
-      var wsItem = byKey(req);
+      /* Only something in the open change is tickable, and therefore only
+       * something in the open change can be offered as a one-click fix. */
+      var wsItem = inWorkspace(req) ? byKey(req) : null;
 
       if (inSel) {
         /* satisfied by the selection — keep walking through it */
@@ -698,16 +833,163 @@ function renderHeader() {
   var dot = $('#ws-dot'), lab = $('#ws-label');
   if (S.ws) {
     dot.className = 'dot dot-ok';
-    lab.textContent = S.ws.ref + ' — ' + CHANGES.length + ' items changed';
+    lab.textContent = S.ws.ref + ' — ' + wsChanges().length + ' items changed';
   } else {
     dot.className = 'dot dot-idle';
     lab.textContent = 'No change in progress';
   }
-  $('#count-changes').textContent = S.ws ? CHANGES.length : '';
+  $('#count-changes').textContent = S.ws ? wsChanges().length : '';
   $('#count-requests').textContent = REQUESTS.length;
 }
 
+/* ---- guide ---- */
+
+function renderGuide() {
+  if ($('#faq').children.length) return;   /* static, render once */
+  $('#faq').innerHTML = FAQ.map(function (f) {
+    return '<dt>' + esc(f.q) + '</dt><dd>' + esc(f.a) + '</dd>';
+  }).join('');
+  $('#tbl-glossary tbody').innerHTML = GLOSSARY.map(function (g) {
+    return '<tr><td>' + esc(g[0]) + '</td><td class="muted">' + esc(g[1]) + '</td></tr>';
+  }).join('');
+}
+
+/* ---- work captured before a change was started ---- */
+
+function renderOrphans() {
+  var card = $('#ws-orphan');
+  if (!S.orphans.length) { card.hidden = true; return; }
+  card.hidden = false;
+
+  $('#orphan-count').textContent = S.orphans.length + ' items';
+  $('#orphan-lede').textContent =
+    'You built these before starting a change. Nothing is lost — every save was ' +
+    'captured. They just have no change to belong to yet, so they cannot be sent ' +
+    'forward. Tick what belongs together and give it a reference.';
+
+  $('#orphan-list').innerHTML = groupChanges(
+    CHANGES.filter(function (c) { return S.orphans.indexOf(c.key) >= 0; })
+  ).map(function (g) {
+    return '<div class="grp"><div class="grp-head">' + esc(g.label) +
+      '<span class="grp-n">' + g.items.length + '</span></div>' +
+      g.items.map(function (c) {
+        var col = COLLISIONS[c.key];
+        return '<label class="row' + (S.orphanPick[c.key] ? ' picked' : '') +
+            (S.collisionsChecked && col ? ' flagged' : '') + '">' +
+          '<input type="checkbox" ' + (S.orphanPick[c.key] ? 'checked' : '') +
+            ' data-ocb="' + esc(c.key) + '">' +
+          '<div class="row-main">' +
+            '<div class="row-name">' + esc(c.name) + '</div>' +
+            '<div class="row-meta">' + esc(c.detail) +
+              (S.collisionsChecked && col
+                ? ' &middot; <span class="warn">' + esc(col.by) + ' also changed this on ' +
+                  esc(col.at) + '</span>'
+                : '') +
+            '</div>' +
+          '</div><div class="row-side">' +
+            actionTag(c.action) +
+            '<span class="tag ver">Version ' + c.version + '</span>' +
+            sourceTag(c.source) +
+          '</div></label>';
+      }).join('') + '</div>';
+  }).join('');
+
+  $$('[data-ocb]', card).forEach(function (cb) {
+    cb.addEventListener('change', function () {
+      S.orphanPick[cb.getAttribute('data-ocb')] = cb.checked;
+      cb.closest('.row').classList.toggle('picked', cb.checked);
+    });
+  });
+}
+
+function orphanPicked() {
+  return S.orphans.filter(function (k) { return S.orphanPick[k]; });
+}
+
+function runCollisionCheck(silent) {
+  var keys = orphanPicked();
+  if (!keys.length) {
+    if (!silent) $('#orphan-warn').textContent = 'Tick the items you want to check.';
+    return Promise.resolve([]);
+  }
+  $('#orphan-warn').textContent = '';
+  return DATA.checkCollisions(keys).then(function (hits) {
+    S.collisionsChecked = true;
+    var b = $('#orphan-collision');
+    if (!hits.length) {
+      b.className = 'banner banner-ok';
+      b.hidden = false;
+      b.innerHTML = 'Checked. Nobody else has touched any of these ' + keys.length +
+        ' items since you changed them, so nothing of yours has been overwritten ' +
+        'and nothing of theirs will be.';
+    } else {
+      b.className = 'banner banner-warn';
+      b.hidden = false;
+      b.innerHTML = '<strong>' + hits.length + ' of these were also changed by ' +
+        'somebody else.</strong> Nothing was holding them for you, so one of you has ' +
+        'the other\'s work. Sort this out before you go any further.<br><br>' +
+        hits.map(function (h) {
+          return '<code>' + esc(h.key) + '</code> — ' + esc(h.info.by) + ' ' +
+                 esc(h.info.what) + ' on ' + esc(h.info.at) + '.';
+        }).join('<br>') +
+        '<br><br>Starting a change before you build is what avoids this: while you ' +
+        'hold an item, nobody else can change it.';
+    }
+    renderOrphans();
+    return hits;
+  });
+}
+
+function adoptOrphans() {
+  var keys = orphanPicked();
+  var ref = $('#orphan-ref').value.trim();
+  var title = $('#orphan-title').value.trim();
+
+  if (!keys.length) { $('#orphan-warn').textContent = 'Tick at least one item.'; return; }
+  if (!ref || !title) {
+    $('#orphan-warn').textContent = 'A reference and a description are both needed.';
+    $('#orphan-ref').classList.toggle('bad', !ref);
+    $('#orphan-title').classList.toggle('bad', !title);
+    return;
+  }
+  $('#orphan-warn').textContent = '';
+
+  /* Never let someone adopt over the top of a collision without seeing it. */
+  DATA.checkCollisions(keys).then(function (hits) {
+    if (hits.length && !S.collisionsChecked) {
+      runCollisionCheck(true);
+      modal('Somebody else changed ' + hits.length + ' of these',
+        '<p>Because this work was not in a change, nothing was holding these items ' +
+        'for you and somebody else edited the same thing.</p>' +
+        hits.map(function (h) {
+          return '<p><code>' + esc(h.key) + '</code><br>' + esc(h.info.by) + ' ' +
+                 esc(h.info.what) + ' on ' + esc(h.info.at) + '.</p>';
+        }).join('') +
+        '<p class="muted">You can still put this into a change — the work is not ' +
+        'lost either way — but talk to them before you send it forward, or one of ' +
+        'you will lose an edit.</p>',
+        [{ label: 'Let me look first' },
+         { label: 'Put it into a change anyway', kind: 'primary', onClick: doAdopt }]);
+      return;
+    }
+    doAdopt();
+  });
+
+  function doAdopt() {
+    DATA.adopt(keys, ref, title).then(function () {
+      S.orphanPick = {};
+      S.collisionsChecked = false;
+      S.form.title = title;
+      $('#pr-title').value = title;
+      renderHeader();
+      renderWorkspace();
+      toast(keys.length + ' items are now part of ' + ref);
+    });
+  }
+}
+
 function renderWorkspace() {
+  renderOrphans();
   var baseSel = $('#ws-base');
   if (!baseSel.options.length) {
     ENVIRONMENTS.slice().reverse().forEach(function (e) {
@@ -728,7 +1010,7 @@ function renderWorkspace() {
   $('#ws-k-ref').textContent = S.ws.ref;
   $('#ws-k-started').textContent = S.ws.started;
   $('#ws-k-base').textContent = envById(S.ws.base).name + ' as it was when you started';
-  $('#ws-k-count').textContent = CHANGES.length + ' items';
+  $('#ws-k-count').textContent = wsChanges().length + ' items';
   $('#ws-k-branch').innerHTML = '<code>' + esc(S.ws.branch) + '</code>';
   $('#ws-k-usrns').innerHTML = '<code>' + esc(S.ws.usrns) + '</code>';
 
@@ -812,13 +1094,13 @@ function renderChanges() {
   var ts = $('#chg-type'), ss = $('#chg-source');
   if (ts.options.length === 1) {
     TYPE_ORDER.forEach(function (t) {
-      if (!CHANGES.some(function (c) { return c.type === t; })) return;
+      if (!wsChanges().some(function (c) { return c.type === t; })) return;
       var o = document.createElement('option');
       o.value = t; o.textContent = TYPES[t].label;
       ts.appendChild(o);
     });
     var srcs = [];
-    CHANGES.forEach(function (c) { if (srcs.indexOf(c.source) < 0) srcs.push(c.source); });
+    wsChanges().forEach(function (c) { if (srcs.indexOf(c.source) < 0) srcs.push(c.source); });
     srcs.forEach(function (s) {
       var o = document.createElement('option');
       o.value = s; o.textContent = s;
@@ -828,7 +1110,7 @@ function renderChanges() {
 
   var q = ($('#chg-search').value || '').toLowerCase();
   var ft = ts.value, fs = ss.value;
-  var list = CHANGES.filter(function (c) {
+  var list = wsChanges().filter(function (c) {
     if (q && c.name.toLowerCase().indexOf(q) < 0 && c.detail.toLowerCase().indexOf(q) < 0) return false;
     if (ft && c.type !== ft) return false;
     if (fs && c.source !== fs) return false;
@@ -854,7 +1136,22 @@ function renderChanges() {
           '<span class="muted nowrap">' + esc(c.when) + '</span>' +
           '</div></div>';
       }).join('') + '</div>';
-  }).join('') || '<p class="muted">Nothing matches that filter.</p>';
+  }).join('') || emptyChanges();
+}
+
+function emptyChanges() {
+  if (!S.ws && S.orphans.length) {
+    return '<div class="banner banner-warn">You have <strong>' + S.orphans.length +
+      ' items</strong> that were captured but are not part of a change yet, so they ' +
+      'are not listed here. Go to <strong>My change</strong> and put them into a ' +
+      'change — nothing is lost.</div>';
+  }
+  if (!S.ws) {
+    return '<div class="banner banner-ok">Nothing captured yet. Start a change in ' +
+      '<strong>My change</strong>, then build as you normally would — everything you ' +
+      'save from then on appears here on its own.</div>';
+  }
+  return '<p class="muted">Nothing matches that filter.</p>';
 }
 
 /* =====================================================================
@@ -895,7 +1192,7 @@ function updateTargetHint() {
 
 function renderPick() {
   var host = $('#pick-groups');
-  host.innerHTML = groupChanges(CHANGES).map(function (g) {
+  host.innerHTML = groupChanges(wsChanges()).map(function (g) {
     return '<div class="grp"><div class="grp-head">' + esc(g.label) +
       '<span class="grp-n">' + g.items.length + '</span></div>' +
       g.items.map(function (c) {
@@ -925,7 +1222,7 @@ function renderPick() {
 
 function updatePickCount() {
   var n = pickedKeys().length;
-  $('#pick-count').textContent = n + ' of ' + CHANGES.length + ' selected';
+  $('#pick-count').textContent = n + ' of ' + wsChanges().length + ' selected';
 }
 
 function runCheck() {
@@ -1330,6 +1627,7 @@ function go(screen) {
   $$('.screen').forEach(function (s) {
     s.classList.toggle('on', s.id === 'screen-' + screen);
   });
+  if (screen === 'guide')        renderGuide();
   if (screen === 'workspace')    renderWorkspace();
   if (screen === 'changes')      renderChanges();
   if (screen === 'promote')      { renderPromoteIntro(); gotoStep(S.step); }
@@ -1427,6 +1725,14 @@ function wire() {
 
   $('#btn-goto-promote').addEventListener('click', function () { go('promote'); });
 
+  $('#btn-adopt').addEventListener('click', adoptOrphans);
+  $('#btn-orphan-check').addEventListener('click', function () { runCollisionCheck(false); });
+
+  /* welcome */
+  $('#welcome-x').addEventListener('click', closeWelcome);
+  $('#w-go').addEventListener('click', closeWelcome);
+  $('#w-guide').addEventListener('click', function () { closeWelcome(); go('guide'); });
+
   $('#btn-ws-sync').addEventListener('click', function () {
     var n = $('#ws-sync-note');
     n.hidden = false;
@@ -1440,7 +1746,7 @@ function wire() {
 
   $('#btn-ws-abandon').addEventListener('click', function () {
     modal('Abandon this change?',
-      '<p>All ' + CHANGES.length + ' items go back to how they were, and everything ' +
+      '<p>All ' + wsChanges().length + ' items go back to how they were, and everything ' +
       'you are holding is released for other people.</p>' +
       '<p class="muted">There is no undo.</p>',
       [{ label: 'Keep working' },
@@ -1481,7 +1787,7 @@ function wire() {
   });
 
   $('#pick-all').addEventListener('click', function () {
-    CHANGES.forEach(function (c) { S.picked[c.key] = true; });
+    wsChanges().forEach(function (c) { S.picked[c.key] = true; });
     renderPick();
   });
   $('#pick-none').addEventListener('click', function () {
@@ -1541,14 +1847,36 @@ function submit() {
 }
 
 /* =====================================================================
- * 12. BOOT
+ * 12. WELCOME
+ *
+ * Shown the first time the tool is opened in a browser. The persona meets this
+ * once and then never wants to see it again, so it is dismissible for good and
+ * the same content lives permanently under "How this works".
+ * ===================================================================== */
+
+var WELCOME_KEY = 'hcccicd.welcome.hidden';
+
+function maybeShowWelcome() {
+  var hidden = false;
+  try { hidden = localStorage.getItem(WELCOME_KEY) === '1'; } catch (e) {}
+  if (hidden) return;
+  $('#w-orphan').hidden = !S.orphans.length;
+  $('#welcome').hidden = false;
+}
+
+function closeWelcome() {
+  if ($('#w-hide').checked) {
+    try { localStorage.setItem(WELCOME_KEY, '1'); } catch (e) {}
+  }
+  $('#welcome').hidden = true;
+}
+
+/* =====================================================================
+ * 13. BOOT
  * ===================================================================== */
 
 function boot() {
   wire();
-
-  /* seed the demo selection so the safety check has something to catch */
-  DEFAULT_PICK.forEach(function (k) { S.picked[k] = true; });
 
   var p = new URLSearchParams(location.search);
   if (p.get('ns')) S.namespace = p.get('ns');
@@ -1559,10 +1887,22 @@ function boot() {
       if (!p.get('ns')) S.namespace = me.namespace || S.namespace;
     }
 
-    /* Pre-open a workspace so the prototype lands on a populated state
-     * rather than an empty one. Add ?fresh=1 to start from nothing and
-     * walk through "Start a change" yourself. */
-    if (!p.get('fresh')) {
+    /* Two starting states.
+     *
+     * Default — a change is already open with everything captured. This is the
+     * happy path and the better demo of the safety check.
+     *
+     * ?fresh=1 — no change open, and seven items already captured without one.
+     * This is the recovery scenario: the builder started work before opening
+     * this tool, which is what most of them will actually do the first time. */
+    if (p.get('fresh')) {
+      S.orphans = ORPHAN_KEYS.slice();
+      S.orphans.forEach(function (k) { S.orphanPick[k] = true; });
+      S.claims = CLAIMS.filter(function (c) { return c.state === 'other'; });
+      $('#orphan-title').value = 'Lab results feed to the LIS';
+    } else {
+      S.wsKeys = CHANGES.map(function (c) { return c.key; });
+      DEFAULT_PICK.forEach(function (k) { S.picked[k] = true; });
       S.ws = {
         ref: 'INT-4821',
         title: 'Outbound lab results to the LIS',
@@ -1585,6 +1925,7 @@ function boot() {
 
     renderHeader();
     go('workspace');
+    maybeShowWelcome();
   });
 }
 

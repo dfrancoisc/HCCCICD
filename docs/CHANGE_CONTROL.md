@@ -67,6 +67,50 @@ conflict into an early conversation. It is the pessimistic-locking half of the
 "basic system synchronization" requirement, and it is what the *Items held for
 you* table represents.
 
+## 3a. Capture does not depend on the user remembering
+
+This is the single most important property of the design, and it comes free
+from Embedded Git rather than from anything built here.
+
+Embedded Git intercepts the save event in every editor — the Interoperability
+editor, the Management Portal, the wizards, and anything driving them
+programmatically such as the Agentic Integration Builder — and exports the
+artifact to a file in the repository working tree. That happens whatever branch
+is checked out and whether or not the user has started a change.
+
+So the failure mode "the builder forgot to turn source control on and lost two
+days of work" **cannot happen**. What a forgotten start actually costs is two
+narrower things:
+
+1. The work has no label saying which piece of work it belongs to, so it cannot
+   be packaged and sent forward.
+2. No edit claims were registered, so nothing stopped a colleague editing the
+   same artifact.
+
+Both are recoverable, and the tool treats them as an ordinary state rather than
+an error. **Work not in a change yet** appears at the top of *My change*
+whenever unassigned work is detected. The user ticks what belongs together,
+supplies a reference and a description, and adopts it. Underneath, the branch is
+created at that moment and the uncommitted working-tree changes carry across —
+`git checkout -b` does exactly this — then claims are registered retroactively.
+
+Selection is per item, so a builder who did two unrelated things in one sitting
+splits them into two changes rather than being forced to send both together.
+
+Problem 2 is the one that cannot be undone, so it is surfaced rather than
+glossed over. **Check nobody else touched these** compares each adopted item
+against the base branch for a newer commit touching the same file, and names
+who changed what and when. Adoption is not blocked — the work is real and
+refusing to package it helps nobody — but an unchecked collision forces an
+explicit confirmation first. The wording says plainly that starting the change
+first is what avoids the situation, because the goal is for the user to want to
+do step 1 next time, not to feel punished for having missed it.
+
+The guide leads with this. Telling a non-developer "you must remember to do X
+before you start" produces anxiety and, eventually, a support ticket. Telling
+them "we captured it either way, and here is the ten-second fix" produces a user
+who trusts the tool.
+
 ## 4. Vocabulary
 
 The main flow uses no Git vocabulary. This is not dumbing down; it is naming
@@ -211,7 +255,31 @@ Things a developer would expect that are not here, and why:
 - **No partial-file promotion.** The unit is the artifact. Half a routing rule is
   not a thing.
 
-## 9. Implementation notes
+## 9. In-system guidance
+
+The persona will not read documentation before using a tool, and will not find
+a wiki page when they are stuck. So the guidance is in the product.
+
+**Welcome overlay.** Shown the first time the tool is opened in a browser.
+Three cards — say what you are working on, build as you always do, send it
+forward — plus a live callout if unassigned work was detected, because that
+person's very next question is "so where is my stuff?". Dismissible for good
+with a checkbox; the same content lives permanently under *How this works*, so
+dismissing it loses nothing.
+
+**How this works.** First item in the rail. Six steps, each with what the user
+does and a *why it matters* / *what happens on its own* note explaining the
+mechanism. Step 1 carries a callout for people who already started building, and
+step 6 covers that case in full including the collision risk. Below the steps: a
+FAQ of the eight questions this persona actually asks, and a glossary mapping
+every plain-language term on these screens to what the platform team calls it.
+
+**Inline notes.** Every card has a collapsible *what this does behind the
+scenes*, and the **Show the technical names** toggle reveals branch names, user
+namespaces and deployment identifiers throughout. The guide is the long-form
+version of the same commitment: nothing is hidden, it is just not in the way.
+
+## 10. Implementation notes
 
 - `HCCCICD.Install.Setup` is additive and reversible. It creates one web
   application and appends one script tag to the shipped editor page, backing the

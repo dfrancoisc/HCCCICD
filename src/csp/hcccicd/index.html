@@ -37,6 +37,10 @@
 <div id="shell">
 
   <nav id="rail" aria-label="Sections">
+    <button type="button" class="rail-item" data-screen="guide">
+      <span class="rail-name">How this works</span>
+      <span class="rail-sub">Start here</span>
+    </button>
     <button type="button" class="rail-item on" data-screen="workspace">
       <span class="rail-name">My change</span>
       <span class="rail-sub">Start work, hold the lock</span>
@@ -71,6 +75,177 @@
 
   <main id="pane">
 
+    <!-- ============ SCREEN: HOW THIS WORKS ============ -->
+    <section class="screen" id="screen-guide">
+      <div class="screen-head">
+        <h2>How this works</h2>
+        <p class="lede">
+          Six steps from opening the Interoperability page to your change
+          running in Production. Read it once; you will not need it again.
+        </p>
+      </div>
+
+      <div class="guide-steps">
+
+        <article class="gstep">
+          <div class="gstep-n">1</div>
+          <div class="gstep-body">
+            <h3>Open Change Control and start a change</h3>
+            <p>
+              In the Interoperability page, click <strong>Change Control</strong> in
+              the toolbar. Go to <strong>My change</strong> and fill in two things:
+              your ticket reference, and one line saying what you are about to do.
+              Click <strong>Start working</strong>.
+            </p>
+            <p class="gstep-why">
+              <span class="gstep-why-l">Why it matters</span>
+              This is the only step you have to remember. It gives you a private
+              copy of the interface configuration, so nothing you do is visible to
+              anyone else — or breaks anything for anyone else — until you choose
+              to send it forward.
+            </p>
+            <div class="callout callout-ok">
+              <strong>Did you already start building?</strong> That is fine and it is
+              recoverable. Nothing is lost — go to <strong>My change</strong> and the
+              tool will show you the work it found and offer to put it into a change
+              for you. Read step 6 for the details.
+            </div>
+          </div>
+        </article>
+
+        <article class="gstep">
+          <div class="gstep-n">2</div>
+          <div class="gstep-body">
+            <h3>Close this and go build, exactly as you do today</h3>
+            <p>
+              Nothing about how you work changes. Use the Interoperability editor,
+              the Management Portal, the CSV record wizard, the rule editor, the
+              transformation builder — or just ask the
+              <strong>Agentic Integration Builder</strong> to build it for you.
+            </p>
+            <p class="gstep-why">
+              <span class="gstep-why-l">What happens on its own</span>
+              Every time you press Save, whatever you saved is captured and given a
+              version number. There is no export step, no "add to source control"
+              button, and nothing to remember. A brand new namespace, production,
+              transformation or lookup table is captured as version 1 the moment it
+              exists.
+            </p>
+          </div>
+        </article>
+
+        <article class="gstep">
+          <div class="gstep-n">3</div>
+          <div class="gstep-body">
+            <h3>Check what was captured</h3>
+            <p>
+              Come back to Change Control and open <strong>What I changed</strong>.
+              Everything you touched is listed, grouped by kind, each with its
+              version, when it changed, and which tool made the change.
+            </p>
+            <p class="gstep-why">
+              <span class="gstep-why-l">Worth knowing</span>
+              This is broader than code. Namespaces, productions, business hosts,
+              adapters, transformations, business processes, routing rules, lookup
+              tables, message schemas, record maps, system default settings, OAuth
+              clients, credentials and globals are all covered. If you changed it,
+              it is here.
+            </p>
+          </div>
+        </article>
+
+        <article class="gstep">
+          <div class="gstep-n">4</div>
+          <div class="gstep-body">
+            <h3>Send it forward</h3>
+            <p>
+              <strong>Send forward</strong> is four steps. Describe what you did and
+              why — the approver reads this. Tick the items that belong to this
+              change. Let the safety check run. Review and submit.
+            </p>
+            <p class="gstep-why">
+              <span class="gstep-why-l">The safety check is the point</span>
+              It follows every reference out of everything you ticked and compares it
+              with what is actually running in the target environment. If you are
+              sending a production but not the business host it points at, it says
+              so, and adds it for you in one click. It also tells you which settings
+              have no value in the target, and which passwords will not travel.
+              Anything that would break is fixed here, not discovered there.
+            </p>
+          </div>
+        </article>
+
+        <article class="gstep">
+          <div class="gstep-n">5</div>
+          <div class="gstep-body">
+            <h3>Watch it land, then send it on</h3>
+            <p>
+              <strong>My requests</strong> shows where every change you have sent is:
+              deployed, waiting for approval, or sent back to you with a reason.
+              Development deploys itself. Test needs one approval. Production needs
+              two and goes in during a change window.
+            </p>
+            <p class="gstep-why">
+              <span class="gstep-why-l">Moving to the next environment</span>
+              Test it where it landed. When you are happy, press
+              <strong>Send on to&nbsp;…</strong> on the request. The same items go
+              forward — you do not pick them again — and the safety check runs again
+              against the new target, because Production is not Test.
+            </p>
+          </div>
+        </article>
+
+        <article class="gstep">
+          <div class="gstep-n">6</div>
+          <div class="gstep-body">
+            <h3>If you built something before starting a change</h3>
+            <p>
+              Very common, and nothing is lost. Capture does not depend on you
+              remembering step 1 — every save is captured regardless. What you are
+              missing is the label that says which piece of work it belongs to, and
+              the hold that stops someone else editing the same thing.
+            </p>
+            <p>
+              Open <strong>My change</strong>. Anything captured that is not part of a
+              change appears at the top under <strong>Work not in a change yet</strong>.
+              Tick what belongs together, give it a reference and a description, and
+              press <strong>Put this into a change</strong>. From that moment it
+              behaves as though you had started properly, and you can send it forward
+              normally.
+            </p>
+            <div class="callout callout-warn">
+              <strong>The one real risk.</strong> While your work was unassigned,
+              nothing was holding those items for you. If somebody else edited the
+              same item in the meantime, one of you has overwritten the other. The
+              tool checks for exactly that when you adopt the work and tells you
+              which items are affected before you commit to anything. Starting the
+              change first is what avoids the situation entirely.
+            </div>
+          </div>
+        </article>
+
+      </div>
+
+      <div class="card">
+        <h3>Questions people ask</h3>
+        <dl class="faq" id="faq"></dl>
+      </div>
+
+      <div class="card">
+        <h3>The words on these screens</h3>
+        <p class="card-lede">
+          Plain language on the left, what your platform team calls it on the
+          right. You never need the right-hand column, but here it is.
+        </p>
+        <div class="tbl-wrap">
+          <table class="tbl" id="tbl-glossary">
+            <thead><tr><th>What we call it</th><th>What it is underneath</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
     <!-- ============ SCREEN: MY CHANGE ============ -->
     <section class="screen on" id="screen-workspace">
 
@@ -81,6 +256,54 @@
           forward. Start a change first &mdash; that is what keeps your work
           from colliding with anyone else's.
         </p>
+      </div>
+
+      <!-- work captured before a change was started -->
+      <div class="card card-flag" id="ws-orphan" hidden>
+        <div class="ws-head">
+          <div>
+            <h3>Work not in a change yet</h3>
+            <p class="card-lede" id="orphan-lede">&mdash;</p>
+          </div>
+          <span class="status"><span class="dot dot-warn"></span><span id="orphan-count">&mdash;</span></span>
+        </div>
+
+        <div class="banner banner-warn" id="orphan-collision" hidden></div>
+
+        <div id="orphan-list"></div>
+
+        <div class="form-grid" style="margin-top:14px">
+          <label class="fld">
+            <span class="lbl">Reference <em>required</em></span>
+            <input type="text" id="orphan-ref" placeholder="INT-4830" spellcheck="false">
+          </label>
+          <label class="fld">
+            <span class="lbl">What is this work? <em>required</em></span>
+            <input type="text" id="orphan-title" placeholder="Lab results feed to the LIS" spellcheck="false">
+          </label>
+        </div>
+
+        <div class="card-actions">
+          <button type="button" class="btn primary" id="btn-adopt">Put this into a change</button>
+          <button type="button" class="btn ghost" id="btn-orphan-check">Check nobody else touched these</button>
+          <span class="warn" id="orphan-warn"></span>
+        </div>
+        <p class="note">
+          Ticked items move into the new change together. Anything you leave
+          unticked stays here, so you can split two unrelated pieces of work into
+          two separate changes.
+        </p>
+        <details class="tech">
+          <summary>What this does behind the scenes</summary>
+          <p>
+            Your saves were exported to the repository working tree all along &mdash;
+            capture never depended on a branch existing. Adopting creates the
+            feature branch now and carries the uncommitted working-tree changes onto
+            it, then registers the edit claims retroactively. The collision check
+            compares each item against the base branch to see whether anyone else
+            committed a change to the same artifact while yours was unassigned.
+          </p>
+        </details>
       </div>
 
       <!-- no workspace yet -->
@@ -419,6 +642,59 @@
       <button type="button" class="x" id="modal-close" title="Close">&#10005;</button></div>
     <div class="panel-body" id="modal-body"></div>
     <div class="panel-foot" id="modal-foot"></div>
+  </div>
+</div>
+
+<!-- first-run welcome -->
+<div id="welcome" class="overlay" hidden>
+  <div class="panel panel-wide">
+    <div class="panel-bar"><span>Change Control</span>
+      <button type="button" class="x" id="welcome-x" title="Close">&#10005;</button></div>
+    <div class="panel-body">
+      <p class="w-lede">
+        This is where your interface changes get packaged up and moved to the next
+        environment &mdash; without raising a ticket and without anyone touching
+        code on your behalf.
+      </p>
+
+      <div class="w-grid">
+        <div class="w-card">
+          <div class="w-n">1</div>
+          <h4>Say what you are working on</h4>
+          <p>A ticket reference and one line. You get a private copy of the
+             configuration and a hold on everything you touch.</p>
+        </div>
+        <div class="w-card">
+          <div class="w-n">2</div>
+          <h4>Build the way you always do</h4>
+          <p>Editor, portal, wizards, or ask the Agentic Integration Builder.
+             Every save is captured and versioned on its own.</p>
+        </div>
+        <div class="w-card">
+          <div class="w-n">3</div>
+          <h4>Send it forward</h4>
+          <p>Describe it, tick what goes, and let the safety check find what you
+             forgot before it reaches the next environment.</p>
+        </div>
+      </div>
+
+      <div class="callout callout-ok" id="w-orphan" hidden>
+        <strong>You have work that is not in a change yet.</strong>
+        Nothing is lost &mdash; it was all captured. Open <strong>My change</strong>
+        and put it into a change; it takes about ten seconds.
+      </div>
+
+      <p class="muted w-foot">
+        The full walkthrough, including what to do if you started building before
+        opening this, is under <strong>How this works</strong> in the left rail.
+      </p>
+    </div>
+    <div class="panel-foot">
+      <label class="w-again"><input type="checkbox" id="w-hide"> Do not show this again</label>
+      <span class="spacer"></span>
+      <button type="button" class="btn" id="w-guide">Read the walkthrough</button>
+      <button type="button" class="btn primary" id="w-go">Get started</button>
+    </div>
   </div>
 </div>
 

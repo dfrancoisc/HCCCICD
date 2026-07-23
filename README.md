@@ -40,7 +40,8 @@ safety check that walks the dependency graph before anything moves.
 
 | Screen | What the user does |
 |---|---|
-| **My change** | Starts a piece of work under a ticket reference. Gets a private workspace and holds the items they touch. Sees what other people are holding. |
+| **How this works** | The six-step walkthrough, a FAQ, and a plain-language ↔ Git glossary. Also shown as a dismissible welcome the first time the tool is opened. |
+| **My change** | Starts a piece of work under a ticket reference. Gets a private workspace and holds the items they touch. Sees what other people are holding — and, if they built something before starting a change, adopts that work into one. |
 | **What I changed** | Reviews everything that was captured and versioned automatically — no export step, whatever tool made the change. |
 | **Send forward** | A four-step wizard: describe it, pick the items, run the safety check, submit. |
 | **My requests** | Where each submitted change is in the Development → Test → Production pipeline, and the button to send it on. |
@@ -54,6 +55,66 @@ is *saved automatically*, "merge request" is *change request*, "pipeline" is
 branch names, user namespaces and deployment identifiers for anyone who wants
 them, and every card carries a collapsible "what this does behind the scenes"
 note. Nothing is hidden — it is just not in the way.
+
+---
+
+## The process end to end
+
+What actually happens, from opening the Health Connect Cloud Interoperability
+page to the change running in Production. This is also built into the tool
+itself, under **How this works**, and shown as a welcome the first time it is
+opened.
+
+**1 — Start a change.** In the Interoperability page, click **Change Control**
+in the toolbar, go to **My change**, enter a ticket reference and one line
+describing the work, and press **Start working**.
+
+This is the only step the user has to remember. It cuts a feature branch from
+`live` into their own user namespace and begins registering edit claims for
+whatever they touch.
+
+**2 — Go and build, unchanged.** Interoperability editor, Management Portal,
+CSV record wizard, rule editor, transformation builder, or the Agentic
+Integration Builder. Nothing about how they work changes.
+
+Every save is exported and versioned on its own — no export step, no "add to
+source control" button. A new namespace, production, transformation or lookup
+table is captured as version 1 the moment it exists.
+
+**3 — Check what was captured.** **What I changed** lists everything, grouped
+by kind, with version, timestamp and which tool made it. Changes the agent made
+on the user's behalf are tagged as such.
+
+**4 — Send it forward.** Describe it and why (mandatory — the approver reads
+it), tick the items, run the safety check, submit. Blocking findings prevent
+submission; warnings are acknowledged individually.
+
+**5 — Track it, then send it on.** **My requests** shows each change's position
+in the pipeline. Test where it landed, then press *Send on to …* — the same
+items go forward without re-picking, and the safety check re-runs against the
+new target.
+
+### If they built before starting a change
+
+The common first-time case, and it is recoverable. Capture never depended on
+step 1: Embedded Git exports on save regardless of which branch is checked out,
+so the work is sitting in the working tree. What is missing is the label saying
+which piece of work it belongs to, and the edit claim.
+
+**My change** detects it and shows **Work not in a change yet**. The user ticks
+what belongs together, gives it a reference and a description, and presses
+**Put this into a change**. The branch is created now and the uncommitted
+changes carry onto it; claims are registered retroactively. From that point it
+behaves exactly as if step 1 had happened first, and it can be sent forward
+normally. Unticked items stay behind, so two unrelated pieces of work can be
+split into two changes.
+
+There is one real cost, and the tool states it plainly rather than hiding it:
+while the work was unassigned, nothing was holding those items, so somebody else
+may have edited the same artifact. **Check nobody else touched these** compares
+each item against the base branch and names who changed what and when. Adoption
+is still allowed — the work is not lost either way — but never silently: an
+unchecked collision forces a confirmation before anything proceeds.
 
 ---
 
@@ -137,9 +198,13 @@ without disturbing anything else.
 - In context: open the Interoperability editor and click **Change Control** in
   the dashboard strip.
 
-`?fresh=1` starts with no workspace, so you can walk through "Start a change"
-from the beginning. Without it the prototype opens on a populated change with
-16 modified items, which is the better demo.
+Two starting states:
+
+- **default** — a change is already open with 16 captured items. The better
+  demo of the safety check.
+- **`?fresh=1`** — no change open, and seven items already captured without
+  one. The recovery scenario, and what most builders will actually hit the
+  first time.
 
 ---
 
