@@ -1,0 +1,431 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
+<title>Change Control</title>
+<!-- Same cache-busting trick as the spec questionnaire: the CSP gateway
+     stamps Expires:+1h on /agentic/* static files, so a versionless
+     stylesheet/script reference survives a deploy and the page renders
+     current markup against a stale bundle. document.write runs during
+     parse, so ordering holds and there is no flash of unstyled content. -->
+<script>
+  (function () {
+    var p = new URLSearchParams(location.search);
+    window.__chgV = p.get('t') || p.get('v') || String(Date.now());
+    document.write('<link rel="stylesheet" href="change.css?v=' + window.__chgV + '">');
+  })();
+</script>
+</head>
+<body>
+
+<header id="hdr">
+  <h1>Change Control</h1>
+  <span class="pill" id="pill-env" title="The environment you are working in">&mdash;</span>
+  <span class="pill" id="pill-ns" title="Namespace">&mdash;</span>
+  <span class="pill" id="pill-user" title="Signed in as">&mdash;</span>
+  <span class="spacer"></span>
+  <div id="ws-indicator" class="ws-indicator">
+    <span class="dot dot-idle" id="ws-dot"></span>
+    <span id="ws-label">No change in progress</span>
+  </div>
+</header>
+
+<div id="shell">
+
+  <nav id="rail" aria-label="Sections">
+    <button type="button" class="rail-item on" data-screen="workspace">
+      <span class="rail-name">My change</span>
+      <span class="rail-sub">Start work, hold the lock</span>
+    </button>
+    <button type="button" class="rail-item" data-screen="changes">
+      <span class="rail-name">What I changed</span>
+      <span class="rail-sub">Versioned automatically</span>
+      <span class="rail-count" id="count-changes"></span>
+    </button>
+    <button type="button" class="rail-item" data-screen="promote">
+      <span class="rail-name">Send forward</span>
+      <span class="rail-sub">Pick, check, submit</span>
+    </button>
+    <button type="button" class="rail-item" data-screen="requests">
+      <span class="rail-name">My requests</span>
+      <span class="rail-sub">Where each change is</span>
+      <span class="rail-count" id="count-requests"></span>
+    </button>
+    <button type="button" class="rail-item" data-screen="environments">
+      <span class="rail-name">Environments</span>
+      <span class="rail-sub">Where changes can go</span>
+    </button>
+    <span class="rail-spacer"></span>
+    <div class="rail-foot">
+      <button type="button" class="linkbtn" id="btn-jargon">Show the technical names</button>
+      <p class="rail-note" id="rail-note">
+        Plain language is on. Turn this on to see the Git and pipeline
+        terms behind each step.
+      </p>
+    </div>
+  </nav>
+
+  <main id="pane">
+
+    <!-- ============ SCREEN: MY CHANGE ============ -->
+    <section class="screen on" id="screen-workspace">
+
+      <div class="screen-head">
+        <h2>My change</h2>
+        <p class="lede">
+          Everything you build stays private to you until you send it
+          forward. Start a change first &mdash; that is what keeps your work
+          from colliding with anyone else's.
+        </p>
+      </div>
+
+      <!-- no workspace yet -->
+      <div class="card" id="ws-start">
+        <h3>Start a change</h3>
+        <p class="card-lede">
+          Give this piece of work a name and a reference. You get your own
+          private copy of the interface configuration, and the items you
+          touch are held for you so nobody overwrites them.
+        </p>
+        <div class="form-grid">
+          <label class="fld">
+            <span class="lbl">Reference <em>required</em></span>
+            <input type="text" id="ws-ref" placeholder="INT-4821" spellcheck="false">
+            <span class="hint">Your ticket number &mdash; ServiceNow, Jira, or the internal request ID.</span>
+          </label>
+          <label class="fld">
+            <span class="lbl">What are you working on? <em>required</em></span>
+            <input type="text" id="ws-title" placeholder="Outbound lab results to the LIS" spellcheck="false">
+            <span class="hint">One line. This becomes the title of the change request later.</span>
+          </label>
+          <label class="fld">
+            <span class="lbl">Start from</span>
+            <select id="ws-base"></select>
+            <span class="hint">Normally Production, so you build on what is live today.</span>
+          </label>
+        </div>
+        <div class="card-actions">
+          <button type="button" class="btn primary" id="btn-ws-start">Start working</button>
+          <span class="warn" id="ws-start-warn"></span>
+        </div>
+        <details class="tech">
+          <summary>What this does behind the scenes</summary>
+          <p>
+            Creates a feature branch <code>interface/&lt;user&gt;/&lt;reference&gt;</code> from the
+            <code>live</code> branch in the Health Connect Cloud GitLab repository, checks it out
+            into your personal user namespace, and registers an edit claim for
+            every artifact you open. Embedded Git exports each artifact to a file
+            on save, so no manual export step exists.
+          </p>
+        </details>
+      </div>
+
+      <!-- workspace active -->
+      <div id="ws-active" hidden>
+        <div class="card ws-card">
+          <div class="ws-head">
+            <div>
+              <h3 id="ws-name">&mdash;</h3>
+              <p class="card-lede" id="ws-meta">&mdash;</p>
+            </div>
+            <span class="status"><span class="dot dot-ok"></span><span id="ws-state">Open</span></span>
+          </div>
+          <dl class="kv">
+            <div><dt>Reference</dt><dd id="ws-k-ref">&mdash;</dd></div>
+            <div><dt>Started</dt><dd id="ws-k-started">&mdash;</dd></div>
+            <div><dt>Built on top of</dt><dd id="ws-k-base">&mdash;</dd></div>
+            <div><dt>Items changed</dt><dd id="ws-k-count">&mdash;</dd></div>
+            <div class="tech-only"><dt>Branch</dt><dd id="ws-k-branch">&mdash;</dd></div>
+            <div class="tech-only"><dt>User namespace</dt><dd id="ws-k-usrns">&mdash;</dd></div>
+          </dl>
+          <div class="card-actions">
+            <button type="button" class="btn primary" id="btn-goto-promote">Send this forward</button>
+            <button type="button" class="btn" id="btn-ws-sync">Refresh from Production</button>
+            <button type="button" class="btn ghost" id="btn-ws-abandon">Abandon this change</button>
+          </div>
+          <div id="ws-sync-note" class="note" hidden></div>
+        </div>
+
+        <div class="card">
+          <h3>Items held for you</h3>
+          <p class="card-lede">
+            While you hold an item nobody else can change it. Anything held by
+            someone else is read-only for you until they finish.
+          </p>
+          <div class="tbl-wrap">
+            <table class="tbl" id="tbl-claims">
+              <thead>
+                <tr>
+                  <th>Item</th><th>Type</th><th>Held by</th><th>Since</th><th>Status</th><th></th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="card" id="conflict-card" hidden>
+          <h3>Blocked item</h3>
+          <div class="banner banner-warn" id="conflict-banner"></div>
+          <div class="card-actions">
+            <button type="button" class="btn" id="btn-request-handover">Ask them to release it</button>
+            <button type="button" class="btn ghost" id="btn-conflict-dismiss">Work on something else</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ SCREEN: WHAT I CHANGED ============ -->
+    <section class="screen" id="screen-changes">
+      <div class="screen-head">
+        <h2>What I changed</h2>
+        <p class="lede">
+          Every create, edit and delete is captured and given a version number
+          the moment you save &mdash; whether you did it in the Interoperability
+          editor, the Management Portal, a wizard, or by asking the Agentic
+          Integration Builder to do it. You never export anything by hand.
+        </p>
+      </div>
+
+      <div class="toolbar">
+        <input type="search" id="chg-search" placeholder="Filter by name" spellcheck="false">
+        <select id="chg-type"><option value="">All types</option></select>
+        <select id="chg-source"><option value="">All sources</option></select>
+        <span class="spacer"></span>
+        <span class="muted" id="chg-summary"></span>
+      </div>
+
+      <div id="chg-groups"></div>
+    </section>
+
+    <!-- ============ SCREEN: SEND FORWARD ============ -->
+    <section class="screen" id="screen-promote">
+      <div class="screen-head">
+        <h2>Send forward</h2>
+        <p class="lede" id="promote-lede">&mdash;</p>
+      </div>
+
+      <ol class="stepper" id="stepper">
+        <li class="step on" data-step="1"><span class="step-n">1</span><span>Describe it</span></li>
+        <li class="step" data-step="2"><span class="step-n">2</span><span>Pick the changes</span></li>
+        <li class="step" data-step="3"><span class="step-n">3</span><span>Safety check</span></li>
+        <li class="step" data-step="4"><span class="step-n">4</span><span>Review and submit</span></li>
+      </ol>
+
+      <!-- step 1 -->
+      <div class="wizard-pane on" data-pane="1">
+        <div class="card">
+          <h3>Describe the change</h3>
+          <p class="card-lede">
+            This is what the approver reads and what stays on the record. Write
+            it for someone who was not in the room.
+          </p>
+          <div class="form-grid">
+            <label class="fld">
+              <span class="lbl">Send it to <em>required</em></span>
+              <select id="pr-target"></select>
+              <span class="hint" id="pr-target-hint">&mdash;</span>
+            </label>
+            <label class="fld">
+              <span class="lbl">Title <em>required</em></span>
+              <input type="text" id="pr-title" spellcheck="false" placeholder="Outbound lab results to the LIS">
+            </label>
+            <label class="fld wide">
+              <span class="lbl">What changed? <em>required</em></span>
+              <textarea id="pr-what" rows="4" spellcheck="false"
+                placeholder="New inbound service for lab results over MLLP, a transform to the LIS format, and a routing rule. The ADT router now also drops A08 duplicates."></textarea>
+              <span class="hint">Describe the behaviour, not the file names. The item list is attached automatically.</span>
+            </label>
+            <label class="fld wide">
+              <span class="lbl">Why? <em>required</em></span>
+              <textarea id="pr-why" rows="3" spellcheck="false"
+                placeholder="The lab replaced their analyser and the old feed stops on 30 September. Ticket INT-4821."></textarea>
+            </label>
+            <label class="fld">
+              <span class="lbl">If this goes wrong, what breaks?</span>
+              <select id="pr-risk">
+                <option value="low">Low &mdash; new interface, nothing existing depends on it</option>
+                <option value="medium" selected>Medium &mdash; touches a live interface</option>
+                <option value="high">High &mdash; touches a live interface carrying patient data now</option>
+              </select>
+            </label>
+            <label class="fld">
+              <span class="lbl">When should it go in?</span>
+              <select id="pr-window">
+                <option value="asap">As soon as it is approved</option>
+                <option value="next" selected>Next scheduled window &mdash; Thursday 20:00</option>
+                <option value="hold">Hold &mdash; I will say when</option>
+              </select>
+            </label>
+            <label class="fld wide">
+              <span class="lbl">How do we undo it?</span>
+              <textarea id="pr-rollback" rows="2" spellcheck="false"
+                placeholder="Disable the new service and re-deploy the previous version of the ADT router."></textarea>
+              <span class="hint">Leave blank to use the default: roll back to the previous deployed version.</span>
+            </label>
+          </div>
+        </div>
+        <div class="wizard-actions">
+          <span class="warn" id="pr-warn-1"></span>
+          <span class="spacer"></span>
+          <button type="button" class="btn primary" data-goto="2">Next: pick the changes</button>
+        </div>
+      </div>
+
+      <!-- step 2 -->
+      <div class="wizard-pane" data-pane="2">
+        <div class="card">
+          <div class="ws-head">
+            <div>
+              <h3>Pick what goes forward</h3>
+              <p class="card-lede">
+                Tick only what belongs to this change. Anything you leave behind
+                stays in your workspace for next time.
+              </p>
+            </div>
+            <div class="pick-actions">
+              <button type="button" class="linkbtn" id="pick-all">Select all</button>
+              <span class="sep">&middot;</span>
+              <button type="button" class="linkbtn" id="pick-none">Clear</button>
+            </div>
+          </div>
+          <div id="pick-groups"></div>
+        </div>
+        <div class="wizard-actions">
+          <span class="warn" id="pr-warn-2"></span>
+          <span class="muted" id="pick-count"></span>
+          <span class="spacer"></span>
+          <button type="button" class="btn" data-goto="1">Back</button>
+          <button type="button" class="btn primary" data-goto="3">Next: run the safety check</button>
+        </div>
+      </div>
+
+      <!-- step 3 -->
+      <div class="wizard-pane" data-pane="3">
+        <div class="card" id="check-summary-card">
+          <h3>Safety check</h3>
+          <p class="card-lede" id="check-lede">
+            We compared what you picked against what is already running in the
+            target environment, and followed every reference between them.
+          </p>
+          <div class="check-tiles" id="check-tiles"></div>
+        </div>
+        <div id="findings"></div>
+        <div class="wizard-actions">
+          <span class="warn" id="pr-warn-3"></span>
+          <span class="spacer"></span>
+          <button type="button" class="btn" data-goto="2">Back</button>
+          <button type="button" class="btn" id="btn-recheck">Check again</button>
+          <button type="button" class="btn primary" data-goto="4" id="btn-to-4">Next: review and submit</button>
+        </div>
+      </div>
+
+      <!-- step 4 -->
+      <div class="wizard-pane" data-pane="4">
+        <div class="card">
+          <h3>Review</h3>
+          <p class="card-lede">Last look. Nothing moves until you submit.</p>
+          <div id="review"></div>
+        </div>
+        <div class="card">
+          <h3>What happens after you submit</h3>
+          <ol class="flow" id="after-flow"></ol>
+        </div>
+        <div class="wizard-actions">
+          <span class="warn" id="pr-warn-4"></span>
+          <span class="spacer"></span>
+          <button type="button" class="btn" data-goto="3">Back</button>
+          <button type="button" class="btn primary" id="btn-submit">Submit change request</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ SCREEN: MY REQUESTS ============ -->
+    <section class="screen" id="screen-requests">
+      <div class="screen-head">
+        <h2>My requests</h2>
+        <p class="lede">
+          Every change you have sent forward and exactly where it is. A change
+          has to land and settle in one environment before it can go to the next.
+        </p>
+      </div>
+      <div id="req-list"></div>
+    </section>
+
+    <!-- ============ SCREEN: ENVIRONMENTS ============ -->
+    <section class="screen" id="screen-environments">
+      <div class="screen-head">
+        <h2>Environments</h2>
+        <p class="lede">
+          The route a change takes and who has to agree at each stop. Set up
+          once by your administrator.
+        </p>
+      </div>
+
+      <div class="card">
+        <h3>Promotion path</h3>
+        <div class="path" id="env-path"></div>
+      </div>
+
+      <div class="card">
+        <h3>Configuration</h3>
+        <div class="tbl-wrap">
+          <table class="tbl" id="tbl-envs">
+            <thead>
+              <tr>
+                <th>Environment</th>
+                <th>Namespace</th>
+                <th>Sends to</th>
+                <th>Approval</th>
+                <th>Who approves</th>
+                <th>Deployment</th>
+                <th class="tech-only">Branch</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <p class="note" id="env-admin-note"></p>
+      </div>
+
+      <div class="card">
+        <h3>Handled differently on the way over</h3>
+        <p class="card-lede">
+          Some things must not be copied between environments verbatim. These
+          rules are applied automatically and are why the safety check warns
+          you about them.
+        </p>
+        <div class="tbl-wrap">
+          <table class="tbl" id="tbl-rules">
+            <thead><tr><th>Kind of item</th><th>Treatment</th><th>Why</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+  </main>
+</div>
+
+<!-- generic modal -->
+<div id="modal" class="overlay" hidden>
+  <div class="panel">
+    <div class="panel-bar"><span id="modal-title">&mdash;</span>
+      <button type="button" class="x" id="modal-close" title="Close">&#10005;</button></div>
+    <div class="panel-body" id="modal-body"></div>
+    <div class="panel-foot" id="modal-foot"></div>
+  </div>
+</div>
+
+<div id="toast" hidden></div>
+
+<script>
+  document.write('<script src="change.js?v=' + window.__chgV + '"><\/script>');
+</script>
+</body>
+</html>
