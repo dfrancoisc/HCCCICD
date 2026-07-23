@@ -18,6 +18,22 @@ something buildable, not a wish.
 
 ---
 
+## It tells you what to do before you touch anything
+
+The first session is the one that goes wrong, so the instruction arrives
+unprompted. Sign in, open the Interoperability page, and the guide is already
+there — before a single production has been created.
+
+![Change Control onboarding in the Interoperability editor](docs/img/onboarding.gif)
+
+A strip along the bottom of the editor holds the answer to "am I covered right
+now?" for as long as the user is building: amber and naming the risk while
+nothing is started, quiet green once a change is open. The dot on the toolbar
+tab carries the same state. Once a change is open the guide stops appearing —
+nobody mid-change is interrupted.
+
+---
+
 ## Watch it end to end
 
 Eight steps, from starting a change to sending it on to the next environment.
