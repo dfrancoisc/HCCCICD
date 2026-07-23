@@ -36,6 +36,12 @@ XData UrlMap [ XMLNamespace = "http://www.intersystems.com/urlmap" ]
     <Route Url="/reset"     Method="POST"   Call="Reset" />
     <Route Url="/config"    Method="GET"    Call="GetConfig" />
     <Route Url="/config"    Method="PUT"    Call="PutConfig" />
+    <Route Url="/environments"     Method="GET" Call="ListEnvs" />
+    <Route Url="/environments/:id" Method="PUT" Call="UpdateEnv" />
+    <Route Url="/requests"  Method="GET"    Call="ListRequests" />
+    <Route Url="/requests"  Method="POST"   Call="SubmitRequest" />
+    <Route Url="/requests/:id/approve" Method="POST" Call="ApproveRequest" />
+    <Route Url="/requests/:id/promote" Method="POST" Call="PromoteRequest" />
 </Routes>
 }
 
@@ -52,6 +58,21 @@ Parameter SKIPPREFIX = "Ens,EnsLib,EnsPortal,HS,HSMOD,SYS,INFORMATION,Config,Bac
 ClassMethod IdMode() As %String [ Internal ]
 {
     Quit $get(^HCCCICD("cfg", "idMode"), "auto")
+}
+
+/// Description: Whether a change needs somebody else to sign it off.
+///
+///   1 — required. The change waits in the target environment's queue until a
+///       second person approves it. This is what a real deployment does.
+///   0 — bypassed. Submitting approves and deploys in one step, under the
+///       submitter's own name and clearly labelled as such.
+///
+/// Bypass exists because a single-instance prototype has no second person to
+/// do the approving, so without it every change stalls at the first gate and
+/// the rest of the pipeline can never be seen.
+ClassMethod ApprovalRequired() As %Boolean [ Internal ]
+{
+    Quit +$get(^HCCCICD("cfg", "approvalRequired"), 1)
 }
 
 /// Description: What the next generated reference will be, without consuming
@@ -75,10 +96,11 @@ ClassMethod GetConfig() As %Status
     Set tSC = $$$OK
     Try {
         Set tSC = ..UseNamespace()
-        If 'tSC { Quit }
+        If 'tSC { Return tSC }
         Set o = {}
         Set o.idMode = ..IdMode()
         Set o.nextId = ..PeekId()
+        Set o.approvalRequired = ..ApprovalRequired()
         Set o.namespace = $namespace
         Set o.ok = 1
         Set tSC = ..Json(o)
@@ -95,19 +117,419 @@ ClassMethod PutConfig() As %Status
     Set tSC = $$$OK
     Try {
         Set tSC = ..UseNamespace()
-        If 'tSC { Quit }
+        If 'tSC { Return tSC }
         Set body = ..Body()
-        Set mode = ..Str(body, "idMode")
-        If (mode '= "auto") && (mode '= "manual") {
-            Set tSC = ..Fault(400, "idMode must be auto or manual")
-            Quit
+
+        If $isobject(body), body.%IsDefined("idMode") {
+            Set mode = ..Str(body, "idMode")
+            If (mode '= "auto") && (mode '= "manual") {
+                Set tSC = ..Fault(400, "idMode must be auto or manual")
+                Return tSC
+            }
+            Set ^HCCCICD("cfg", "idMode") = mode
         }
-        Set ^HCCCICD("cfg", "idMode") = mode
+
+        If $isobject(body), body.%IsDefined("approvalRequired") {
+            Set ^HCCCICD("cfg", "approvalRequired") = +body.approvalRequired
+        }
+
         Set tSC = ..GetConfig()
     } Catch ex {
         Set tSC = ..Fail(ex)
     }
     Quit tSC
+}
+
+/// Description: The environment definitions for this instance.
+///
+/// Seeded once with the Health Connect Cloud shape — Development, Test,
+/// Production — and editable from the Environments screen thereafter. The
+/// promotion path is the "next" field on each row, so changing where a change
+/// goes next is a single edit rather than a code change.
+ClassMethod SeedEnvs() [ Internal ]
+{
+    If $data(^HCCCICD("env")) { Quit }
+    Set ns = $namespace
+    Do ..PutEnv("dev",  "Development", ns, "test", "none", "",                     1)
+    Do ..PutEnv("test", "Test",        ns, "prod", "one",  "m.silva",              2)
+    Do ..PutEnv("prod", "Production",  ns, "",     "two",  "m.silva,change-board", 3)
+}
+
+ClassMethod PutEnv(pId, pName, pNs, pNext, pApproval, pApprovers, pOrder) [ Internal ]
+{
+    Set e = {}
+    Set e.id = pId
+    Set e.name = pName
+    Set e.namespace = pNs
+    Set e.next = pNext
+    Set e.approval = pApproval
+    Set e.approvers = pApprovers
+    Set e.order = pOrder
+    Set ^HCCCICD("env", pId) = e.%ToJSON()
+}
+
+ClassMethod GetEnv(pId As %String) As %DynamicObject [ Internal ]
+{
+    Do ..SeedEnvs()
+    Set raw = $get(^HCCCICD("env", pId))
+    If raw = "" Quit ""
+    Quit ##class(%DynamicAbstractObject).%FromJSON(raw)
+}
+
+/// Description: Where a change in this environment goes next. Read from the
+/// configuration, so the promotion path is data rather than code.
+ClassMethod NextEnv(pEnv As %String) As %String [ Internal ]
+{
+    Set e = ..GetEnv(pEnv)
+    If '$isobject(e) Quit ""
+    Quit e.next
+}
+
+ClassMethod EnvLabel(pEnv As %String) As %String [ Internal ]
+{
+    Set e = ..GetEnv(pEnv)
+    If '$isobject(e) Quit pEnv
+    Quit e.name
+}
+
+/// Description: The whole promotion path, in order.
+ClassMethod ListEnvs() As %Status
+{
+    New $namespace
+    Set tSC = $$$OK
+    Try {
+        Set tSC = ..UseNamespace()
+        If 'tSC { Return tSC }
+        Do ..SeedEnvs()
+        Set list = []
+        Set ord = ""
+        Kill byOrder
+        Set id = ""
+        For {
+            Set id = $order(^HCCCICD("env", id))
+            Quit:id=""
+            Set e = ..GetEnv(id)
+            If $isobject(e) { Set byOrder(+e.order, id) = "" }
+        }
+        Set o = ""
+        For {
+            Set o = $order(byOrder(o))
+            Quit:o=""
+            Set id2 = ""
+            For {
+                Set id2 = $order(byOrder(o, id2))
+                Quit:id2=""
+                Do list.%Push(..GetEnv(id2))
+            }
+        }
+        Set out = {}
+        Set out.environments = list
+        Set out.ok = 1
+        Set tSC = ..Json(out)
+    } Catch ex {
+        Set tSC = ..Fail(ex)
+    }
+    Quit tSC
+}
+
+/// Description: Edit one environment — its namespace, where it sends to, and
+/// who has to approve.
+ClassMethod UpdateEnv(pId As %String) As %Status
+{
+    New $namespace
+    Set tSC = $$$OK
+    Try {
+        Set tSC = ..UseNamespace()
+        If 'tSC { Return tSC }
+        Set e = ..GetEnv(pId)
+        If '$isobject(e) {
+            Set tSC = ..Fault(404, "No such environment: " _ pId)
+            Return tSC
+        }
+        Set body = ..Body()
+
+        If body.%IsDefined("name"),      ..Str(body, "name") '= "" { Set e.name = ..Str(body, "name") }
+        If body.%IsDefined("namespace"), ..Str(body, "namespace") '= "" { Set e.namespace = ..Str(body, "namespace") }
+        If body.%IsDefined("approvers")  { Set e.approvers = ..Str(body, "approvers") }
+
+        If body.%IsDefined("approval") {
+            Set a = ..Str(body, "approval")
+            If (a '= "none") && (a '= "one") && (a '= "two") {
+                Set tSC = ..Fault(400, "approval must be none, one or two")
+                Return tSC
+            }
+            Set e.approval = a
+        }
+
+        If body.%IsDefined("next") {
+            Set n = ..Str(body, "next")
+            If n = pId {
+                Set tSC = ..Fault(400, "An environment cannot send to itself")
+                Return tSC
+            }
+            If (n '= ""), '$isobject(..GetEnv(n)) {
+                Set tSC = ..Fault(400, "No such environment: " _ n)
+                Return tSC
+            }
+            ; Refuse a cycle. Walking the path is cheap and a loop here would
+            ; make promotion run forever rather than stopping at the last stop.
+            Set probe = n, hops = 0
+            For {
+                Quit:probe=""
+                If probe = pId {
+                    Set tSC = ..Fault(400, "That would make the promotion path loop back on itself")
+                    Return tSC
+                }
+                Set pe = ..GetEnv(probe)
+                Quit:'$isobject(pe)
+                Set probe = pe.next
+                Set hops = hops + 1
+                If hops > 20 { Quit }
+            }
+            If 'tSC { Quit }
+            Set e.next = n
+        }
+
+        Set ^HCCCICD("env", pId) = e.%ToJSON()
+        Set tSC = ..ListEnvs()
+    } Catch ex {
+        Set tSC = ..Fail(ex)
+    }
+    Quit tSC
+}
+
+
+/// Description: Append one line to a request's history. Every state change is
+/// recorded with who and when, because the audit trail is the point of the
+/// tool — and a bypassed approval especially must not be able to pass for a
+/// real one later.
+ClassMethod Note(pReq As %DynamicObject, pAction As %String, pDetail As %String = "") [ Internal ]
+{
+    Set e = {}
+    Set e.at = $zdatetime($horolog, 3)
+    Set e.who = $username
+    Set e.action = pAction
+    If pDetail '= "" { Set e.detail = pDetail }
+    Do pReq.history.%Push(e)
+}
+
+ClassMethod SaveReq(pReq As %DynamicObject) [ Internal ]
+{
+    Set ^HCCCICD("req", pReq.id) = pReq.%ToJSON()
+}
+
+ClassMethod LoadReq(pId As %String) As %DynamicObject [ Internal ]
+{
+    Set raw = $get(^HCCCICD("req", pId))
+    If raw = "" Quit ""
+    Quit ##class(%DynamicAbstractObject).%FromJSON(raw)
+}
+
+/// Description: Every change request in this namespace, newest first.
+ClassMethod ListRequests() As %Status
+{
+    New $namespace
+    Set tSC = $$$OK
+    Try {
+        Set tSC = ..UseNamespace()
+        If 'tSC { Return tSC }
+        Set out = {}
+        Set list = []
+        Set id = ""
+        For {
+            Set id = $order(^HCCCICD("req", id), -1)
+            Quit:id=""
+            Set r = ..LoadReq(id)
+            If $isobject(r) { Do list.%Push(r) }
+        }
+        Set out.requests = list
+        Set out.approvalRequired = ..ApprovalRequired()
+        Set out.ok = 1
+        Set tSC = ..Json(out)
+    } Catch ex {
+        Set tSC = ..Fail(ex)
+    }
+    Quit tSC
+}
+
+/// Description: Send the open change forward.
+///
+/// Creates the change request, closes the workspace, and — when approval is
+/// bypassed — approves and deploys it in the same call, so one person can walk
+/// the whole pipeline.
+ClassMethod SubmitRequest() As %Status
+{
+    New $namespace
+    Set tSC = $$$OK
+    Try {
+        Set tSC = ..UseNamespace()
+        If 'tSC { Return tSC }
+        Set body = ..Body()
+        Set user = $username
+
+        Set ws = $get(^HCCCICD("ws", user))
+        If ws = "" {
+            Set tSC = ..Fault(400, "There is no change open to send forward")
+            Return tSC
+        }
+
+        Set title = ..Str(body, "title")
+        If title = "" { Set title = $listget(ws, 2) }
+        Set target = ..Str(body, "target")
+        If target = "" { Set target = "test" }
+
+        Set items = []
+        If $isobject(body), body.%IsDefined("items"), $isobject(body.items) {
+            Set items = body.items
+        }
+
+        Set r = {}
+        Set r.id        = $listget(ws, 1)
+        Set r.ref       = $listget(ws, 1)
+        Set r.title     = title
+        Set r.what      = ..Str(body, "what")
+        Set r.why       = ..Str(body, "why")
+        Set r.risk      = ..Str(body, "risk")
+        Set r.rollback  = ..Str(body, "rollback")
+        Set r.window    = ..Str(body, "window")
+        Set r.target    = target
+        Set r.items     = items
+        Set r.itemCount = items.%Size()
+        Set r.namespace = $namespace
+        Set r.createdBy = user
+        Set r.createdAt = $zdatetime($horolog, 3)
+        Set r.history   = []
+        Do ..Note(r, "Submitted", items.%Size() _ " items to " _ ..EnvLabel(target))
+
+        If ..ApprovalRequired() {
+            Set r.status = "awaiting"
+            Set r.autoApproved = 0
+            Do ..Note(r, "Waiting for approval", "Needs a second person to sign it off")
+        } Else {
+            Do ..Approve(r, 1)
+        }
+
+        Do ..SaveReq(r)
+        Do ..CloseWorkspace(user, items)
+
+        Set out = {}
+        Set out.request = r
+        Set out.ok = 1
+        Set tSC = ..Json(out)
+    } Catch ex {
+        Set tSC = ..Fail(ex)
+    }
+    Quit tSC
+}
+
+/// Description: Mark a request approved and deployed into its target.
+/// pAuto records whether a person did it or the bypass did — the two must
+/// never be indistinguishable in the history.
+ClassMethod Approve(pReq As %DynamicObject, pAuto As %Boolean) [ Internal ]
+{
+    Set pReq.status = "deployed"
+    Set pReq.approvedBy = $username
+    Set pReq.approvedAt = $zdatetime($horolog, 3)
+    Set pReq.deployedAt = $zdatetime($horolog, 3)
+    Set pReq.autoApproved = +pAuto
+    If pAuto {
+        Do ..Note(pReq, "Approved automatically",
+                  "Approval is bypassed in this environment — nobody reviewed this")
+    } Else {
+        Do ..Note(pReq, "Approved", "Signed off by " _ $username)
+    }
+    Do ..Note(pReq, "Deployed", "Live in " _ ..EnvLabel(pReq.target))
+}
+
+/// Description: Approve a waiting request explicitly.
+ClassMethod ApproveRequest(pId As %String) As %Status
+{
+    New $namespace
+    Set tSC = $$$OK
+    Try {
+        Set tSC = ..UseNamespace()
+        If 'tSC { Return tSC }
+        Set r = ..LoadReq(pId)
+        If '$isobject(r) {
+            Set tSC = ..Fault(404, "No such change request: " _ pId)
+            Return tSC
+        }
+        If r.status = "deployed" {
+            Set tSC = ..Fault(400, "That change is already deployed")
+            Return tSC
+        }
+        Do ..Approve(r, 0)
+        Do ..SaveReq(r)
+        Set out = {}
+        Set out.request = r
+        Set out.ok = 1
+        Set tSC = ..Json(out)
+    } Catch ex {
+        Set tSC = ..Fail(ex)
+    }
+    Quit tSC
+}
+
+/// Description: Send an already-deployed request on to the next environment.
+ClassMethod PromoteRequest(pId As %String) As %Status
+{
+    New $namespace
+    Set tSC = $$$OK
+    Try {
+        Set tSC = ..UseNamespace()
+        If 'tSC { Return tSC }
+        Set r = ..LoadReq(pId)
+        If '$isobject(r) {
+            Set tSC = ..Fault(404, "No such change request: " _ pId)
+            Return tSC
+        }
+        If r.status '= "deployed" {
+            Set tSC = ..Fault(400, "That change has not landed yet, so it cannot go on")
+            Return tSC
+        }
+        Set next = ..NextEnv(r.target)
+        If next = "" {
+            Set tSC = ..Fault(400, "Production is the last stop")
+            Return tSC
+        }
+        Set r.target = next
+        Do ..Note(r, "Sent on", "Same items, now targeting " _ ..EnvLabel(next))
+        If ..ApprovalRequired() {
+            Set r.status = "awaiting"
+            Do ..Note(r, "Waiting for approval", "Needs a second person to sign it off")
+        } Else {
+            Do ..Approve(r, 1)
+        }
+        Do ..SaveReq(r)
+        Set out = {}
+        Set out.request = r
+        Set out.ok = 1
+        Set tSC = ..Json(out)
+    } Catch ex {
+        Set tSC = ..Fail(ex)
+    }
+    Quit tSC
+}
+
+/// Description: The change has been sent. Close the workspace and fold the
+/// items that went with it into the baseline, so they stop being reported as
+/// outstanding work in this namespace.
+ClassMethod CloseWorkspace(pUser As %String, pItems As %DynamicArray) [ Internal ]
+{
+    Kill cur
+    Do ..Scan(.cur)
+    Set it = pItems.%GetIterator()
+    While it.%GetNext(.i, .key) {
+        If $data(cur(key), info) {
+            Set ^HCCCICD("base", pUser, key) = $listget(info, 4)
+            Set ^HCCCICD("seen", pUser, key) = $listget(info, 4)
+        } Else {
+            Kill ^HCCCICD("base", pUser, key), ^HCCCICD("seen", pUser, key)
+            Kill ^HCCCICD("was", pUser, key)
+        }
+        Kill ^HCCCICD("rev", pUser, key), ^HCCCICD("orphan", pUser, key)
+    }
+    Kill ^HCCCICD("ws", pUser)
 }
 
 /// Description: Switch to the namespace the caller is actually working in.
@@ -167,7 +589,7 @@ ClassMethod GetState() As %Status
     Set tSC = $$$OK
     Try {
         Set tSC = ..UseNamespace()
-        If 'tSC { Quit }
+        If 'tSC { Return tSC }
         Set user = $username
         Set out = {}
 
@@ -286,7 +708,7 @@ ClassMethod StartWorkspace() As %Status
     Set tSC = $$$OK
     Try {
         Set tSC = ..UseNamespace()
-        If 'tSC { Quit }
+        If 'tSC { Return tSC }
         Set body = ..Body()
         Set user = $username
         Set ref   = ..Str(body, "ref")
@@ -302,7 +724,7 @@ ClassMethod StartWorkspace() As %Status
 
         If title = "" {
             Set tSC = ..Fault(400, "Say what you are working on")
-            Quit
+            Return tSC
         }
 
         ; Freeze the current change list as orphans.
@@ -329,7 +751,7 @@ ClassMethod AbandonWorkspace() As %Status
     Set tSC = $$$OK
     Try {
         Set tSC = ..UseNamespace()
-        If 'tSC { Quit }
+        If 'tSC { Return tSC }
         Set user = $username
         Do ..MarkCurrentAsOrphans(user)
         Kill ^HCCCICD("ws", user)
@@ -348,7 +770,7 @@ ClassMethod Adopt() As %Status
     Set tSC = $$$OK
     Try {
         Set tSC = ..UseNamespace()
-        If 'tSC { Quit }
+        If 'tSC { Return tSC }
         Set body = ..Body()
         Set user = $username
         Set ref   = ..Str(body, "ref")
@@ -358,14 +780,14 @@ ClassMethod Adopt() As %Status
         If $isobject(body), body.%IsDefined("items") { Set items = body.items }
         If '$isobject(items) {
             Set tSC = ..Fault(400, "items must be an array of artifact keys")
-            Quit
+            Return tSC
         }
 
         If $get(^HCCCICD("ws", user)) = "" {
             If (..IdMode() = "auto") || (ref = "") { Set ref = ..NextId() }
             If title = "" {
                 Set tSC = ..Fault(400, "Say what this work is")
-                Quit
+                Return tSC
             }
             Set slug = $zconvert($translate(user, ".-_", ""), "L")
             Set ^HCCCICD("ws", user) = $listbuild(ref, title, "prod", $zdatetime($horolog, 3),
@@ -393,7 +815,7 @@ ClassMethod Reset() As %Status
     Set tSC = $$$OK
     Try {
         Set tSC = ..UseNamespace()
-        If 'tSC { Quit }
+        If 'tSC { Return tSC }
         Set user = $username
         ; Deliberately keeps ^HCCCICD("seq") and the settings: resetting the
         ; baseline is "everything here is the starting point", not "this
@@ -401,6 +823,9 @@ ClassMethod Reset() As %Status
         ; numbers would collide with changes already sent forward.
         Kill ^HCCCICD("base", user), ^HCCCICD("seen", user)
         Kill ^HCCCICD("rev", user), ^HCCCICD("orphan", user), ^HCCCICD("was", user)
+        ; ^HCCCICD("env"), ("req") and ("seq") survive on purpose: the
+        ; promotion path and the changes already sent forward are not part
+        ; of "what counts as new in this namespace".
         Kill ^HCCCICD("ws", user)
         Do ..Snapshot(user)
         Set tSC = ..GetState()

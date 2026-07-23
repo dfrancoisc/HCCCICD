@@ -658,6 +658,39 @@
       </div>
 
       <div class="card">
+        <h3>Approval</h3>
+        <p class="card-lede">
+          Whether a change needs somebody else to sign it off before it lands.
+        </p>
+        <div class="opt-list">
+          <label class="opt">
+            <input type="radio" name="approval" value="required" id="appr-required">
+            <span>
+              <span class="opt-name">Required &mdash; a second person signs it off</span>
+              <span class="opt-sub">
+                The change waits in the target environment's queue until an
+                approver reviews it. This is what a real deployment does, and
+                what the environment table above describes.
+              </span>
+            </span>
+          </label>
+          <label class="opt">
+            <input type="radio" name="approval" value="bypassed" id="appr-bypassed">
+            <span>
+              <span class="opt-name">Bypassed &mdash; approve and deploy immediately</span>
+              <span class="opt-sub">
+                Submitting a change approves and deploys it in one step, under
+                your own name. For demonstrating the pipeline on an instance
+                where there is nobody else to do the approving. Every change
+                approved this way is labelled, permanently, in its history.
+              </span>
+            </span>
+          </label>
+        </div>
+        <p class="note" id="appr-note"></p>
+      </div>
+
+      <div class="card">
         <h3>Handled differently on the way over</h3>
         <p class="card-lede">
           Some things must not be copied between environments verbatim. These

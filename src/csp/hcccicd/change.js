@@ -400,6 +400,7 @@ var TREATMENT = [
  * ===================================================================== */
 
 var S = {
+  approvalRequired: true,  /* does a change need a second person? */
   idMode: 'auto',   /* how change references are produced */
   nextId: '',       /* preview of the next generated one */
   /* Overwritten by the live whoami call. The fallback keeps the prototype
@@ -529,6 +530,7 @@ function applyState(st) {
   (st.orphans || []).forEach(function (c) { CHANGES.push(normalise(c)); S.orphans.push(c.key); });
 
   if (st.idMode) S.idMode = st.idMode;
+  if (st.approvalRequired !== undefined) S.approvalRequired = !!st.approvalRequired;
   if (st.nextId) S.nextId = st.nextId;
 
   if (st.workspace) {
@@ -570,6 +572,43 @@ function notifyHost() {
   } catch (e) { }
 }
 
+/* The requests screen was written against the fixture shape. Map rather than
+ * rewrite the screen: the server is the newer thing here, not the renderer. */
+function fromServer(r) {
+  var order = ENVIRONMENTS.map(function (e) { return e.id; });
+  var ti = order.indexOf(r.target);
+  var deployed = r.status === 'deployed';
+
+  var stages = ENVIRONMENTS.map(function (e, i) {
+    /* Development is where the work was done, so it is always behind you. */
+    if (i === 0) {
+      return { env: e.id, state: 'done', at: r.createdAt,
+               note: 'Built here' };
+    }
+    if (i < ti || (i === ti && deployed)) {
+      return { env: e.id, state: 'done', at: r.deployedAt || r.createdAt,
+               note: r.autoApproved ? 'Approved automatically — nobody reviewed this'
+                                    : (r.approvedBy ? 'Approved by ' + r.approvedBy : 'Deployed') };
+    }
+    if (i === ti) {
+      return { env: e.id, state: 'waiting', at: null,
+               note: 'Waiting for ' + (e.approvers[0] || 'approval') };
+    }
+    return { env: e.id, state: 'pending', at: null, note: '' };
+  });
+
+  return {
+    id: r.id, ref: r.ref, title: r.title,
+    what: r.what || '', why: r.why || '',
+    items: (r.items || []).length || r.itemCount || 0,
+    author: r.createdBy, created: r.createdAt,
+    risk: r.risk || '', target: r.target, status: r.status,
+    autoApproved: !!r.autoApproved, approvedBy: r.approvedBy || '',
+    history: r.history || [],
+    stages: stages
+  };
+}
+
 function normalise(c) {
   return {
     key: c.key, type: TYPES[c.type] ? c.type : 'production', name: c.name,
@@ -599,6 +638,26 @@ var DATA = {
   refresh: function () {
     if (!LIVE) return Promise.resolve();
     return api('/state').then(function (st) { applyState(st); return st; });
+  },
+
+  /* LIVE only. Persist whether a second person must approve. */
+  setApproval: function (required) {
+    return api('/config', { method: 'PUT', body: JSON.stringify({ approvalRequired: required ? 1 : 0 }) })
+      .then(function (cfg) {
+        S.approvalRequired = !!cfg.approvalRequired;
+        renderApproval();
+        return cfg;
+      });
+  },
+
+  /* LIVE only. The change requests raised in this namespace. */
+  liveRequests: function () {
+    return api('/requests').then(function (d) {
+      REQUESTS.length = 0;
+      (d.requests || []).forEach(function (r) { REQUESTS.push(fromServer(r)); });
+      S.approvalRequired = !!d.approvalRequired;
+      return REQUESTS;
+    });
   },
 
   /* LIVE only. Persist the reference mode for this namespace. */
@@ -701,6 +760,14 @@ var DATA = {
   /* MOCK. Real: raise the merge request against the target branch with the
    * change log in the description and the selected files in the commit. */
   submit: function (payload) {
+    if (LIVE) {
+      return api('/requests', { method: 'POST', body: JSON.stringify(payload) })
+        .then(function (d) {
+          return DATA.liveRequests().then(function () {
+            return { id: d.request.id, request: d.request };
+          });
+        });
+    }
     var id = 'CHG-' + (2060 + Math.floor(Math.random() * 39));
     REQUESTS.unshift({
       id: id, title: payload.title, ref: S.ws ? S.ws.ref : '—', author: 'me',
@@ -1208,6 +1275,17 @@ function labelForMode(m) {
   return m === 'auto' ? 'numbered by the system' : 'entered by the builder';
 }
 
+function renderApproval() {
+  var req = $('#appr-required'), byp = $('#appr-bypassed');
+  if (!req || !byp) return;
+  req.checked = !!S.approvalRequired;
+  byp.checked = !S.approvalRequired;
+  $('#appr-note').textContent = S.approvalRequired
+    ? 'Changes wait for an approver named in the table above.'
+    : 'Approval is bypassed. Submitting a change deploys it immediately, and every '
+      + 'change approved this way is labelled in its history.';
+}
+
 function renderIdMode() {
   var a = $('#idmode-auto'), m = $('#idmode-manual');
   if (!a || !m) return;
@@ -1712,6 +1790,17 @@ function renderReview() {
  * ===================================================================== */
 
 function renderRequests() {
+  /* In live mode the list is server-held, so pull it before drawing. The
+   * redraw below runs on whatever is cached; the fetch triggers a second one. */
+  if (LIVE && !S.reqLoading) {
+    S.reqLoading = true;
+    DATA.liveRequests().then(function () {
+      S.reqLoading = false;
+      renderRequests();
+      renderHeader();
+    }).catch(function () { S.reqLoading = false; });
+  }
+
   if (!REQUESTS.length) {
     $('#req-list').innerHTML =
       '<div class="banner banner-ok">You have not sent anything forward yet. ' +
@@ -1759,6 +1848,8 @@ function renderRequests() {
           '">Send on to ' + esc(envById(lastDone.next).name) + '</button>' : '') +
         (blocked ? '<button type="button" class="btn sm" data-fix-req="' + esc(r.id) +
           '">Reopen it in my workspace</button>' : '') +
+        (waiting ? '<button type="button" class="btn primary sm" data-approve="' + esc(r.id) +
+          '">Approve it</button>' : '') +
         (waiting ? '<button type="button" class="btn sm" data-nudge="' + esc(r.id) + '">Send a reminder</button>' : '') +
         '<button type="button" class="btn sm ghost" data-hist="' + esc(r.id) + '">Full history</button>' +
       '</div></div>';
@@ -1777,6 +1868,16 @@ function renderRequests() {
           : esc(nx.approvers[0] || 'Nobody') + ' has to approve it.') + '</p>',
         [{ label: 'Not yet' },
          { label: 'Send it on', kind: 'primary', onClick: function () {
+             if (LIVE) {
+               api('/requests/' + encodeURIComponent(r.id) + '/promote', { method: 'POST' })
+                 .then(function () { return DATA.liveRequests(); })
+                 .then(function () {
+                   renderRequests();
+                   toast(r.id + ' sent on to ' + nx.name);
+                 })
+                 .catch(function (e) { toast(e.message); });
+               return;
+             }
              r.stages.forEach(function (s) {
                if (s.env === nx.id) {
                  s.state = 'waiting';
@@ -1785,6 +1886,24 @@ function renderRequests() {
              });
              renderRequests();
              toast(r.id + ' sent on to ' + nx.name);
+           } }]);
+    });
+  });
+  $$('[data-approve]').forEach(function (b) {
+    b.addEventListener('click', function () {
+      var id = b.getAttribute('data-approve');
+      modal('Approve ' + id + '?',
+        '<p>This signs the change off and deploys it. In a real deployment this ' +
+        'is somebody other than the person who raised it.</p>' +
+        '<p class="muted">You are approving your own change, which is recorded as ' +
+        'such in the history.</p>',
+        [{ label: 'Cancel' },
+         { label: 'Approve and deploy', kind: 'primary', onClick: function () {
+             if (!LIVE) { toast('Approved'); return; }
+             api('/requests/' + encodeURIComponent(id) + '/approve', { method: 'POST' })
+               .then(function () { return DATA.liveRequests(); })
+               .then(function () { renderRequests(); toast(id + ' approved and deployed'); })
+               .catch(function (e) { toast(e.message); });
            } }]);
     });
   });
@@ -1830,6 +1949,7 @@ function reqById(id) {
 
 function renderEnvironments() {
   renderIdMode();
+  renderApproval();
   $('#env-path').innerHTML = ENVIRONMENTS.map(function (e, i) {
     var node = '<div class="path-node' + (e.id === CURRENT_ENV ? ' is-here' : '') + '">' +
       '<div class="pn-name">' + esc(e.name) + (e.id === CURRENT_ENV ? ' — you are here' : '') + '</div>' +
@@ -1999,6 +2119,24 @@ function wire() {
             ' started — it is yours alone until you send it forward');
     }).catch(function (e) {
       $('#ws-start-warn').textContent = e.message || 'Could not start the change.';
+    });
+  });
+
+  [['appr-required', true], ['appr-bypassed', false]].forEach(function (pair) {
+    var el = document.getElementById(pair[0]);
+    if (!el) return;
+    el.addEventListener('change', function () {
+      if (!el.checked) return;
+      var prev = S.approvalRequired;
+      S.approvalRequired = pair[1];
+      renderApproval();
+      if (!LIVE) { toast(pair[1] ? 'Approval required' : 'Approval bypassed'); return; }
+      DATA.setApproval(pair[1]).then(function () {
+        toast(pair[1] ? 'Approval required' : 'Approval bypassed — changes deploy on submit');
+      }).catch(function (e) {
+        S.approvalRequired = prev; renderApproval();
+        toast('Could not save that: ' + e.message);
+      });
     });
   });
 
@@ -2377,6 +2515,29 @@ function runDemo(name) {
  * 14. BOOT
  * ===================================================================== */
 
+/* Deep link into a screen, and into a step of the Send forward wizard.
+ * Unlike ?demo= this drives real state, so it works in live mode — which is
+ * what lets the walkthrough be recorded against real IRIS rather than against
+ * the fixture. Returns true when it has taken over. */
+function applyDeepLink(p) {
+  var screen = p.get('screen');
+  if (!screen) return false;
+  $('#welcome').hidden = true;
+  go(screen);
+  var step = +p.get('step');
+  if (screen === 'promote' && step >= 1 && step <= 4) {
+    if (p.get('target')) S.form.target = p.get('target');
+    if (p.get('pick') === 'all') {
+      wsChanges().forEach(function (c) { S.picked[c.key] = true; });
+    }
+    if (p.get('title')) { S.form.title = p.get('title'); $('#pr-title').value = p.get('title'); }
+    if (p.get('what'))  { S.form.what  = p.get('what');  $('#pr-what').value  = p.get('what'); }
+    if (p.get('why'))   { S.form.why   = p.get('why');   $('#pr-why').value   = p.get('why'); }
+    gotoStep(step);
+  }
+  return true;
+}
+
 function boot() {
   wire();
 
@@ -2412,6 +2573,7 @@ function boot() {
         go('workspace');
         var d = p.get('demo');
         if (d) { runDemo(d); return; }
+        if (applyDeepLink(p)) return;
         maybeShowWelcome();
       }).catch(function (e) {
         renderHeader();
@@ -2463,6 +2625,8 @@ function boot() {
 
     var demo = p.get('demo');
     if (demo) { runDemo(demo); return; }
+
+    if (applyDeepLink(p)) return;
 
     if (p.get('focus') === 'start') {
       go('workspace');
