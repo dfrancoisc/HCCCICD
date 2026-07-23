@@ -279,7 +279,60 @@ scenes*, and the **Show the technical names** toggle reveals branch names, user
 namespaces and deployment identifiers throughout. The guide is the long-form
 version of the same commitment: nothing is hidden, it is just not in the way.
 
-## 10. Implementation notes
+## 10. Live capture
+
+`HCCCICD.REST.Dispatch` at `/api/hcccicd` reads the namespace so the tool can be
+driven against real artifacts. It is a stand-in for Embedded Git, not a
+replacement: Embedded Git intercepts the save event and writes a file, this
+polls class metadata and compares timestamps. The observable behaviour is close
+enough to test the workflow, and the REST shape is the same one the real thing
+would serve.
+
+**Detection.** `%Dictionary.CompiledClass.PrimarySuper` is matched against the
+interoperability base classes to classify each artifact — production, business
+service, operation, process, BPL, DTL, routing rule, adapter — with shipped
+packages (`Ens*`, `HS*`, `%*`) excluded so only the user's own work is reported.
+Lookup tables come from `Ens_Util.LookupTable` and register by presence, since
+no timestamp is available for them.
+
+**Baseline.** `^HCCCICD("base", user, key)` holds the timestamp of each artifact
+at the last reset. Anything absent from the baseline is *new*; anything whose
+timestamp has moved is *modified*; anything in the baseline but no longer in the
+namespace is *deleted*. The first call ever takes a silent snapshot, so a fresh
+install does not report the entire namespace as the user's work.
+
+**Versions.** `^HCCCICD("rev", user, key)` starts at 1 for a new artifact and
+advances once per distinct save, driven by comparing the observed timestamp
+against `^HCCCICD("seen", ...)`.
+
+**Assignment.** With no change open, everything detected is unassigned by
+definition. Starting or abandoning a change freezes the current change list into
+`^HCCCICD("orphan", ...)`, so pre-existing work is never swept silently into a
+new change — the user has to adopt it deliberately, which is what gives the tool
+a chance to warn about the missing edit claim.
+
+**Dependencies.** Read from the artifact itself, so they stay true as the user
+edits: `ClassName` attributes in the production's `ProductionDefinition` XData,
+`transform` and `target` in a rule's `RuleDefinition`, `sourceClass` and
+`targetClass` in a transform. References to shipped classes are dropped, since
+they are always satisfied and would be noise.
+
+**Authentication.** The API authenticates as the calling user, because it reads
+their namespace. `UseCookies=1` with `CookiePath=/` lets an existing Management
+Portal or Interoperability editor session authenticate it; the class keeps
+`UseSession=0`, so the session identifies the caller and never holds request
+state. That combination is deliberate — a CSP session holding state on these
+routes deadlocks when the page is fetched from an iframe with credentials. A 401
+is caught in the UI and turned into a specific instruction rather than a parse
+error, because standalone in a fresh tab it is the expected first response.
+
+**Not covered.** Target environments, their baselines, the promotion path,
+approvals and request history remain fixtures — there is one environment on a
+single instance and nothing to read. System default settings, credentials, OAuth
+clients, globals, schemas, record maps and namespaces are in the artifact
+taxonomy and the promotion rules, but are not yet detected live.
+
+## 11. Implementation notes
 
 - `HCCCICD.Install.Setup` is additive and reversible. It creates one web
   application and appends one script tag to the shipped editor page, backing the

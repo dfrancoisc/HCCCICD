@@ -187,10 +187,11 @@ do ##class(HCCCICD.Install.Setup).Status()   // what is installed
 do ##class(HCCCICD.Install.Setup).Revert()   // put everything back
 ```
 
-It creates the `/hcccicd` web application and appends one script tag to the
-shipped editor page, backing the original up first. It shares no identifier,
-style or file with any other application on the instance, so it can be removed
-without disturbing anything else.
+It creates the `/hcccicd` static application, the `/api/hcccicd` REST
+application for live capture, and appends one script tag to the shipped editor
+page, backing the original up first. It shares no identifier, style or file
+with any other application on the instance, so it can be removed without
+disturbing anything else.
 
 ### Open it
 
@@ -198,13 +199,79 @@ without disturbing anything else.
 - In context: open the Interoperability editor and click **Change Control** in
   the dashboard strip.
 
-Two starting states:
+Three modes:
 
 - **default** — a change is already open with 16 captured items. The better
   demo of the safety check.
 - **`?fresh=1`** — no change open, and seven items already captured without
   one. The recovery scenario, and what most builders will actually hit the
   first time.
+- **`?live=1`** — no fixtures. The workspace, the change list and the
+  unassigned work all come from the real namespace. See below.
+
+---
+
+## Live mode — drive it against a real namespace
+
+`/hcccicd/index.html?live=1` reads the namespace instead of a fixture. Create a
+production in the Interoperability editor and it appears in the tool.
+
+You must be signed in to IRIS — the tool reads your namespace, so it
+authenticates as you. Opened from the Interoperability page you already are;
+opened standalone in a fresh tab you are not, and the tool says so with a link
+to the portal and a Retry.
+
+Two header controls appear in this mode:
+
+- **Start from zero** — declares the namespace as it stands to be the baseline.
+  The change list goes empty. Nothing is deleted; it only moves the line that
+  says what counts as new. This is how you begin a clean test.
+- **Refresh** — re-reads the namespace. Anything you built since the last read
+  shows up.
+
+### Walk the test
+
+1. Open the tool with `?live=1`, press **Start from zero**. Zero changes.
+2. Go to **My change**, enter a reference and a description, **Start working**.
+3. In the Interoperability editor, create a production — the name alone is
+   enough.
+4. Back in the tool, press **Refresh**. The production is there: *new*, version
+   1, "Empty production, no items yet".
+5. Add a business host to it and refresh again. Version 2, the detail becomes
+   "1 items", and the safety check now knows the production depends on that
+   host — it reads the reference straight out of the production definition.
+6. Do step 3 *before* step 2 and it lands under **Work not in a change yet**
+   instead, which is the recovery path.
+
+### What is real and what is not
+
+Real: the workspace, the change list, versions, artifact types, deletions,
+unassigned-work detection and adoption, and the dependency edges — those are
+read from the production definition, the rule definition and the transform.
+
+Still mocked: the target environments and their baselines, the promotion path,
+approvals and the request history. There is one environment on a single
+instance, so there is nothing to read.
+
+Capture is polling class metadata and comparing timestamps, which is a stand-in
+for Embedded Git intercepting the save event. One consequence is visible: it
+cannot tell which editor made the change, so everything reads "Captured from
+IRIS" rather than naming the tool. Embedded Git can, which is why the fixture
+shows real tool names.
+
+Backed by `HCCCICD.REST.Dispatch` at `/api/hcccicd`:
+
+```
+GET    /whoami
+GET    /state          the open change, the change list, unassigned work
+POST   /workspace      start a change      { ref, title, base }
+DELETE /workspace      abandon it
+POST   /adopt          adopt unassigned work { ref, title, items[] }
+POST   /reset          set the baseline to now
+```
+
+State lives in `^HCCCICD`, keyed by user, so two people on the same instance do
+not see each other's baseline.
 
 ---
 

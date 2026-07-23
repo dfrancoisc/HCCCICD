@@ -29,13 +29,16 @@ for f in index.html change.css change.js inject.js; do
 done
 docker exec "$CONTAINER" bash -lc 'chown -R irisowner:irisowner /usr/irissys/csp/hcccicd 2>/dev/null || true'
 
-echo "--> installer class"
+echo "--> classes"
 docker exec "$CONTAINER" mkdir -p /tmp/hcccicd
 docker cp "$ROOT/src/cls/HCCCICD/Install/Setup.cls" "$CONTAINER:/tmp/hcccicd/Setup.cls"
+docker cp "$ROOT/src/cls/HCCCICD/REST/Dispatch.cls" "$CONTAINER:/tmp/hcccicd/Dispatch.cls"
 
 docker exec -i "$CONTAINER" iris session iris -U "$NAMESPACE" <<EOF
+set sc = \$system.OBJ.Load("/tmp/hcccicd/Dispatch.cls","ck")
+write !,"load Dispatch: ",\$select(sc:"ok",1:\$system.Status.GetErrorText(sc)),!
 set sc = \$system.OBJ.Load("/tmp/hcccicd/Setup.cls","ck")
-write !,"load: ",\$select(sc:"ok",1:\$system.Status.GetErrorText(sc)),!
+write !,"load Setup: ",\$select(sc:"ok",1:\$system.Status.GetErrorText(sc)),!
 do ##class(HCCCICD.Install.Setup).Apply("$NAMESPACE")
 do ##class(HCCCICD.Install.Setup).Status()
 halt

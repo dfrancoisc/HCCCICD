@@ -426,12 +426,127 @@ var S = {
  * not know the data is mocked. Each one names the real backing call.
  * ===================================================================== */
 
+/* Live mode.
+ *
+ * With ?live=1 the workspace, the change list and the unassigned work all come
+ * from /api/hcccicd, which reads the namespace for real. Create a production in
+ * the Interoperability editor and it appears here. The target-environment
+ * baseline, the promotion path and the request history stay mocked, because
+ * there is only one environment on a single instance to read from.
+ *
+ * Without the flag everything is the fixture, which is the better demo.
+ */
+var LIVE = false;
+var API = '/api/hcccicd';
+
+function api(path, opts) {
+  opts = opts || {};
+  opts.credentials = 'include';
+  opts.headers = opts.headers || {};
+  if (opts.body) opts.headers['Content-Type'] = 'application/json';
+  return fetch(API + path, opts).then(function (r) {
+    return r.text().then(function (txt) {
+      if (r.status === 401 || r.status === 403) {
+        var e = new Error('Not signed in to IRIS');
+        e.auth = true;
+        throw e;
+      }
+      var j = null;
+      try { j = txt ? JSON.parse(txt) : null; } catch (x) { j = null; }
+      if (!r.ok) {
+        throw new Error((j && j.error && j.error.message) || ('HTTP ' + r.status + ' ' + r.statusText));
+      }
+      if (!j) throw new Error('The service returned an empty response');
+      return j;
+    });
+  });
+}
+
+/* A 401 here means one thing and has one fix, so say so rather than showing a
+ * parse error. Inside the Interoperability editor the user is already signed in
+ * and this never fires; standalone in a fresh tab it always does. */
+function authWall(retry) {
+  modal('Sign in to IRIS first',
+    '<p>Change Control reads your namespace directly, so it needs you signed in.</p>' +
+    '<p>Open the Management Portal, sign in, then come back and press ' +
+    '<strong>Retry</strong>.</p>' +
+    '<p class="muted">This does not happen when you open Change Control from the ' +
+    'Interoperability page — you are already signed in there.</p>',
+    [{ label: 'Open the portal', onClick: function () {
+         window.open('/csp/sys/UtilHome.csp', '_blank');
+         setTimeout(function () { authWall(retry); }, 400);
+       } },
+     { label: 'Retry', kind: 'primary', onClick: retry }]);
+}
+
+/* Fold a live /state response into the shape the screens already render. */
+function applyState(st) {
+  if (!st) return;
+  CHANGES.length = 0;
+  S.wsKeys = [];
+  S.orphans = [];
+
+  (st.changes || []).forEach(function (c) { CHANGES.push(normalise(c)); S.wsKeys.push(c.key); });
+  (st.orphans || []).forEach(function (c) { CHANGES.push(normalise(c)); S.orphans.push(c.key); });
+
+  if (st.workspace) {
+    S.ws = {
+      ref: st.workspace.ref, title: st.workspace.title, base: st.workspace.base || 'prod',
+      started: st.workspace.started, branch: st.workspace.branch, usrns: st.workspace.usrns
+    };
+  } else {
+    S.ws = null;
+  }
+
+  /* Claims are derived: in live mode you hold what you have changed. */
+  S.claims = CLAIMS.filter(function (c) { return c.state === 'other'; });
+  S.wsKeys.forEach(function (k) {
+    var c = byKey(k);
+    if (c) S.claims.push({ item: k, type: c.type, by: 'me', since: c.when || stamp(), state: 'held' });
+  });
+
+  /* Drop selections for items that no longer exist. */
+  Object.keys(S.picked).forEach(function (k) { if (!byKey(k)) delete S.picked[k]; });
+  Object.keys(S.orphanPick).forEach(function (k) {
+    if (S.orphans.indexOf(k) < 0) delete S.orphanPick[k];
+  });
+  S.orphans.forEach(function (k) {
+    if (!(k in S.orphanPick)) S.orphanPick[k] = true;
+  });
+}
+
+function normalise(c) {
+  return {
+    key: c.key, type: TYPES[c.type] ? c.type : 'production', name: c.name,
+    action: c.action, version: c.version,
+    when: c.when || '', source: sourceLabel(c),
+    detail: c.detail || '', requires: c.requires || []
+  };
+}
+
+/* The live capture layer cannot tell which editor made the change — it is
+ * reading metadata, not intercepting saves. Embedded Git can, which is why the
+ * fixture shows real tool names. */
+function sourceLabel(c) { return c.source === 'IRIS' ? 'Captured from IRIS' : (c.source || 'IRIS'); }
+
 var DATA = {
-  /* LIVE. The only real call in the prototype. */
+  /* LIVE in both modes. */
   whoami: function () {
-    return fetch('/api/agentic/whoami', { credentials: 'include' })
+    var url = LIVE ? (API + '/whoami') : '/api/agentic/whoami';
+    return fetch(url, { credentials: 'include' })
       .then(function (r) { return r.ok ? r.json() : null; })
       .catch(function () { return null; });
+  },
+
+  /* LIVE only. Re-read the namespace and refresh every screen. */
+  refresh: function () {
+    if (!LIVE) return Promise.resolve();
+    return api('/state').then(function (st) { applyState(st); return st; });
+  },
+
+  /* LIVE only. Declare the namespace as it stands to be the starting point. */
+  reset: function () {
+    return api('/reset', { method: 'POST' }).then(function (st) { applyState(st); return st; });
   },
 
   /* MOCK. Real: a persistent configuration class holding the promotion path,
@@ -445,6 +560,12 @@ var DATA = {
   /* MOCK. Real: create the feature branch off live and check it out into the
    * user namespace — SourceControl.Git.Util.Branch plus Import All (Force). */
   startWorkspace: function (ref, title, base) {
+    if (LIVE) {
+      return api('/workspace', {
+        method: 'POST',
+        body: JSON.stringify({ ref: ref, title: title, base: base })
+      }).then(function (st) { applyState(st); return S.ws; });
+    }
     S.ws = {
       ref: ref, title: title, base: base,
       started: stamp(),
@@ -477,6 +598,12 @@ var DATA = {
   /* MOCK. Real: create the feature branch now — the uncommitted working-tree
    * changes carry across — then register the edit claims retroactively. */
   adopt: function (keys, ref, title) {
+    if (LIVE) {
+      return api('/adopt', {
+        method: 'POST',
+        body: JSON.stringify({ ref: ref, title: title, items: keys })
+      }).then(function (st) { applyState(st); return S.ws; });
+    }
     return DATA.startWorkspace(ref, title, 'prod').then(function (ws) {
       keys.forEach(function (k) {
         if (S.wsKeys.indexOf(k) < 0) S.wsKeys.push(k);
@@ -1090,23 +1217,29 @@ function groupChanges(list) {
 }
 
 function renderChanges() {
-  /* populate filters once */
+  /* Rebuild the filters from what is actually in the change. In live mode the
+   * list changes under us every refresh, so this cannot be done once. */
   var ts = $('#chg-type'), ss = $('#chg-source');
-  if (ts.options.length === 1) {
-    TYPE_ORDER.forEach(function (t) {
-      if (!wsChanges().some(function (c) { return c.type === t; })) return;
-      var o = document.createElement('option');
-      o.value = t; o.textContent = TYPES[t].label;
-      ts.appendChild(o);
-    });
-    var srcs = [];
-    wsChanges().forEach(function (c) { if (srcs.indexOf(c.source) < 0) srcs.push(c.source); });
-    srcs.forEach(function (s) {
-      var o = document.createElement('option');
-      o.value = s; o.textContent = s;
-      ss.appendChild(o);
-    });
-  }
+  var keepT = ts.value, keepS = ss.value;
+  var items = wsChanges();
+
+  ts.length = 1; ss.length = 1;
+  TYPE_ORDER.forEach(function (t) {
+    if (!items.some(function (c) { return c.type === t; })) return;
+    var o = document.createElement('option');
+    o.value = t; o.textContent = TYPES[t].label;
+    ts.appendChild(o);
+  });
+  var srcs = [];
+  items.forEach(function (c) { if (srcs.indexOf(c.source) < 0) srcs.push(c.source); });
+  srcs.forEach(function (s) {
+    var o = document.createElement('option');
+    o.value = s; o.textContent = s;
+    ss.appendChild(o);
+  });
+  ts.value = keepT; ss.value = keepS;
+  if (ts.selectedIndex < 0) ts.selectedIndex = 0;
+  if (ss.selectedIndex < 0) ss.selectedIndex = 0;
 
   var q = ($('#chg-search').value || '').toLowerCase();
   var ft = ts.value, fs = ss.value;
@@ -1744,6 +1877,38 @@ function wire() {
     }, 700);
   });
 
+  $('#btn-refresh').addEventListener('click', function () {
+    var b = this;
+    b.disabled = true; b.textContent = 'Reading…';
+    DATA.refresh().then(function () {
+      renderHeader();
+      go(S.screen);
+      toast(wsChanges().length + ' in this change, ' + S.orphans.length + ' unassigned');
+    }).catch(function (e) {
+      if (e.auth) { authWall(function () { $('#btn-refresh').click(); }); }
+      else { toast('Could not read the namespace: ' + e.message); }
+    }).then(function () {
+      b.disabled = false; b.textContent = 'Refresh';
+    });
+  });
+
+  $('#btn-reset-baseline').addEventListener('click', function () {
+    modal('Start from zero?',
+      '<p>Everything that exists in <strong>' + esc(S.namespace) + '</strong> right now ' +
+      'becomes the starting point, and the change list goes empty.</p>' +
+      '<p class="muted">Nothing is deleted — no production, transformation or rule is ' +
+      'touched. This only moves the line that says what counts as new.</p>',
+      [{ label: 'Cancel' },
+       { label: 'Start from zero', kind: 'primary', onClick: function () {
+           DATA.reset().then(function () {
+             S.picked = {}; S.orphanPick = {}; S.waived = {}; S.step = 1;
+             renderHeader();
+             go('workspace');
+             toast('Baseline set. Zero changes.');
+           }).catch(function (e) { toast('Failed: ' + e.message); });
+         } }]);
+  });
+
   $('#btn-ws-abandon').addEventListener('click', function () {
     modal('Abandon this change?',
       '<p>All ' + wsChanges().length + ' items go back to how they were, and everything ' +
@@ -1751,9 +1916,19 @@ function wire() {
       '<p class="muted">There is no undo.</p>',
       [{ label: 'Keep working' },
        { label: 'Abandon it', kind: 'danger', onClick: function () {
-           S.ws = null; S.picked = {}; S.step = 1; S.waived = {};
-           renderHeader(); renderWorkspace();
-           toast('Change abandoned');
+           var done = function () {
+             S.picked = {}; S.step = 1; S.waived = {};
+             renderHeader(); renderWorkspace();
+             toast('Change abandoned');
+           };
+           if (LIVE) {
+             api('/workspace', { method: 'DELETE' })
+               .then(function (st) { applyState(st); done(); })
+               .catch(function (e) { toast('Failed: ' + e.message); });
+           } else {
+             S.ws = null;
+             done();
+           }
          } }]);
   });
 
@@ -1880,6 +2055,8 @@ function boot() {
 
   var p = new URLSearchParams(location.search);
   if (p.get('ns')) S.namespace = p.get('ns');
+  LIVE = p.get('live') === '1';
+  $('#live-tools').hidden = !LIVE;
 
   DATA.whoami().then(function (me) {
     if (me && me.username) {
@@ -1895,6 +2072,25 @@ function boot() {
      * ?fresh=1 — no change open, and seven items already captured without one.
      * This is the recovery scenario: the builder started work before opening
      * this tool, which is what most of them will actually do the first time. */
+    if (LIVE) {
+      /* Nothing is seeded. The namespace is the source of truth. */
+      return DATA.refresh().then(function () {
+        renderHeader();
+        go('workspace');
+        maybeShowWelcome();
+      }).catch(function (e) {
+        renderHeader();
+        go('workspace');
+        if (e.auth) { authWall(boot); return; }
+        modal('Cannot reach the live capture service',
+          '<p>' + esc(e.message) + '</p>' +
+          '<p class="muted">The tool is running against <code>/api/hcccicd</code>. ' +
+          'Check that the installer created the web application: ' +
+          '<code>do ##class(HCCCICD.Install.Setup).Status()</code></p>',
+          [{ label: 'Close' }]);
+      });
+    }
+
     if (p.get('fresh')) {
       S.orphans = ORPHAN_KEYS.slice();
       S.orphans.forEach(function (k) { S.orphanPick[k] = true; });

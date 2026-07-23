@@ -73,6 +73,9 @@ body.tech .kv > div.tech-only { display: block !important; }
 #pill-env.env-test { color: #fcd34d; border-color: #92400e; }
 #pill-env.env-prod { color: #fca5a5; border-color: #7f1d1d; }
 
+#live-tools { display: flex; gap: 7px; }
+#live-tools[hidden] { display: none; }
+
 .ws-indicator {
   display: flex; align-items: center; gap: 7px;
   font-size: 12.5px; color: var(--muted);

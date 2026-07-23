@@ -21,6 +21,9 @@ Parameter APPNAME = "/hcccicd";
 /// Physical directory the web application serves.
 Parameter APPPATH = "/usr/irissys/csp/hcccicd/";
 
+/// REST application for live change capture.
+Parameter APINAME = "/api/hcccicd";
+
 /// The shipped Interoperability editor entry point.
 Parameter EDITORHTML = "/usr/irissys/ui/interop/interop-editor/index.html";
 
@@ -68,6 +71,55 @@ ClassMethod CreateWebApp(pNamespace As %String = "") As %Status
             Set tSC = ##class(Security.Applications).Create(..#APPNAME, .props)
             If 'tSC { Quit }
             Write !,"  CreateWebApp: ",..#APPNAME," created -> ",pNamespace
+        }
+    } Catch ex {
+        Set tSC = ex.AsStatus()
+    }
+    Quit tSC
+}
+
+/// Description: Create or update the /api/hcccicd REST application that serves
+/// live change capture.
+///
+/// Type 2 with AutheEnabled 32, not type 18 — a dispatch-class application on
+/// this platform is still a CSP application, and creating it as type 18 leaves
+/// it unreachable. No session cookies and no CSRF token: the tool is loaded in
+/// an iframe and fetches with credentials, which deadlocks against a CSP
+/// session on these routes.
+ClassMethod CreateApiApp(pNamespace As %String = "") As %Status
+{
+    Set tSC = $$$OK
+    Try {
+        If pNamespace = "" { Set pNamespace = $namespace }
+        New $namespace
+        Set $namespace = "%SYS"
+
+        Kill props
+        Set props("NameSpace")     = pNamespace
+        Set props("DispatchClass") = "HCCCICD.REST.Dispatch"
+        Set props("Description")   = "Change Control live capture API"
+        Set props("Enabled")       = 1
+        Set props("AutheEnabled")  = 32
+        ; Cookies on, scoped to the whole instance, so an existing
+        ; Management Portal or Interoperability editor login authenticates
+        ; these calls. The class keeps UseSession=0, so the session is used
+        ; to identify the caller and never to hold request state — that
+        ; combination is what avoids the iframe fetch deadlock.
+        Set props("CookiePath")    = "/"
+        Set props("UseCookies")    = 1
+        Set props("CSRFToken")     = 0
+        Set props("SessionScope")  = 0
+        Set props("MatchRoles")    = ":%All"
+        Set props("CorsCredentialsAllowed") = 1
+
+        If ##class(Security.Applications).Exists(..#APINAME) {
+            Set tSC = ##class(Security.Applications).Modify(..#APINAME, .props)
+            If 'tSC { Quit }
+            Write !,"  CreateApiApp: ",..#APINAME," updated"
+        } Else {
+            Set tSC = ##class(Security.Applications).Create(..#APINAME, .props)
+            If 'tSC { Quit }
+            Write !,"  CreateApiApp: ",..#APINAME," created -> ",pNamespace
         }
     } Catch ex {
         Set tSC = ex.AsStatus()
@@ -128,6 +180,8 @@ ClassMethod Apply(pNamespace As %String = "") As %Status
     Write !,"HCCCICD.Install.Setup"
     Set tSC = ..CreateWebApp(pNamespace)
     If 'tSC { Quit tSC }
+    Set tSC = ..CreateApiApp(pNamespace)
+    If 'tSC { Quit tSC }
     Set tSC = ..PatchInteropEditor()
     If 'tSC { Quit tSC }
     Write !,"  Done. Open the Interoperability editor and look for the Change Control tab.",!
@@ -178,6 +232,11 @@ ClassMethod Revert(pRemoveWebApp As %Boolean = 1) As %Status
                 If 'tSC { Quit }
                 Write !,"  Revert: ",..#APPNAME," removed"
             }
+            If ##class(Security.Applications).Exists(..#APINAME) {
+                Set tSC = ##class(Security.Applications).Delete(..#APINAME)
+                If 'tSC { Quit }
+                Write !,"  Revert: ",..#APINAME," removed"
+            }
         }
         Write !
     } Catch ex {
@@ -200,6 +259,12 @@ ClassMethod Status() As %Status
             Write "  web application  : ",..#APPNAME," -> ",$get(p("NameSpace"))," (",$get(p("Path")),")",!
         } Else {
             Write "  web application  : not installed",!
+        }
+        If ##class(Security.Applications).Exists(..#APINAME) {
+            Do ##class(Security.Applications).Get(..#APINAME, .a)
+            Write "  live capture api : ",..#APINAME," -> ",$get(a("NameSpace")),!
+        } Else {
+            Write "  live capture api : not installed",!
         }
 
         Set exists = ##class(%File).Exists(..#EDITORHTML)
