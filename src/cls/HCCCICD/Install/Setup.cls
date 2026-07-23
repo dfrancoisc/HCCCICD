@@ -99,25 +99,29 @@ ClassMethod CreateApiApp(pNamespace As %String = "") As %Status
         Set props("DispatchClass") = "HCCCICD.REST.Dispatch"
         Set props("Description")   = "Change Control live capture API"
         Set props("Enabled")       = 1
-        ; 96 = password (32) + unauthenticated (64), matching the Management
-        ; Portal on this instance.
+        ; Identify the real user, the way the Interoperability editor already
+        ; does for its own API.
         ;
-        ; Password-only looked more correct and was unusable. The Management
-        ; Portal scopes its session cookie to /csp/sys/, so it never reaches
-        ; /api/hcccicd; the Interoperability editor runs unauthenticated (64)
-        ; and authenticates its own calls with a bearer token instead. Neither
-        ; login can hand this application a session, so password-only meant a
-        ; 401 on every request no matter how many times the user signed in.
+        ; The editor issues a JSON Web Token and sends it as an Authorization
+        ; bearer header on every call it makes. JWTAuthEnabled tells IRIS to
+        ; validate that token and run the request as the user inside it, and
+        ; GroupById=%ISCMgtPortal puts this application in the same token group
+        ; as the editor so the token it issued is accepted here.
         ;
-        ; Allowing unauthenticated makes the tool reachable from both. When a
-        ; session does identify the caller, $username is that user and the
-        ; per-user baseline follows them. When it does not, the caller is
-        ; UnknownUser and the tool says so in its header rather than pretending.
-        ; A real Health Connect Cloud deployment would put this behind the same
-        ; bearer token the editor already uses.
-        Set props("AutheEnabled")  = 96
+        ; This replaces two earlier attempts that were both wrong. Password-only
+        ; with cookies produced a permanent 401, because the Management Portal
+        ; scopes its session cookie to /csp/sys/ and the editor holds no session
+        ; at all. Allowing unauthenticated access removed the error but reported
+        ; every caller as UnknownUser, which defeats the point — the baseline,
+        ; the change list and the held items are all per user.
+        Set props("AutheEnabled")  = 32
+        Set props("JWTAuthEnabled") = 1
+        Set props("GroupById")     = "%ISCMgtPortal"
+        Set props("JWTAccessTokenTimeout") = 3600
+        Set props("JWTRefreshTokenTimeout") = 900
         Set props("CookiePath")    = "/"
-        Set props("UseCookies")    = 1
+        Set props("UseCookies")    = 0
+        Set props("UserCookieScope") = 2
         Set props("CSRFToken")     = 0
         Set props("SessionScope")  = 0
         Set props("MatchRoles")    = ":%All"

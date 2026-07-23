@@ -18,6 +18,38 @@ something buildable, not a wish.
 
 ---
 
+## The whole thing, start to finish
+
+Sign in, start a change, create a production, and send it to Test. Twelve steps,
+no cuts.
+
+![Creating a production under Change Control, end to end](docs/img/production-journey.gif)
+
+<sub>Plays automatically above. [Download the MP4](docs/img/production-journey.mp4) if you want to pause and scrub.</sub>
+
+This one is **not a mock-up**. Between frames the recorder resets the baseline,
+starts a change through the API, and creates a real production and a real
+business service in the namespace. What you see in the tool is that namespace
+being read back: version 1 on the empty production, version 2 once the service
+is wired into it, and a safety check that finds the dependency by parsing the
+production's own definition.
+
+The last two steps are the point of the whole tool. The builder ticks the
+production and forgets the business service — the single most common way a
+promotion fails. The check reads `ProductionDefinition`, sees
+`Demo.Lab.Service.LabResultIn` referenced and not selected, and blocks the
+submission until it is added. Without it the deployment reports success and the
+production does not start in Test.
+
+Two frames are staged, and both say so on screen. The sign-in frame is the real
+login page captured but never submitted — the recorder does not type anyone's
+password. The two editor frames use a stand-in page, because the shipped editor
+is behind that login; everything Change Control draws on them is the real
+`inject.js`. Regenerate the whole thing with
+`./scripts/record-production-journey.py`.
+
+---
+
 ## It tells you what to do before you touch anything
 
 The first session is the one that goes wrong, so the instruction arrives
@@ -39,8 +71,8 @@ nobody mid-change is interrupted.
 ## Watch it end to end
 
 Eight steps, from starting a change to sending it on to the next environment.
-The safety check is the part worth watching: five items become twelve because
-seven dependencies would have been missed.
+The safety check is the part worth watching: five items become eleven because
+six dependencies would have been missed.
 
 ![Change Control walkthrough](docs/img/walkthrough.gif)
 
@@ -370,8 +402,9 @@ The user interface does not change.
 ## Recording the walkthroughs
 
 ```bash
-./scripts/record-walkthrough.py
-./scripts/gif-to-mp4.py
+./scripts/record-production-journey.py   # the end-to-end journey, against real IRIS
+./scripts/record-walkthrough.py          # the three fixture walkthroughs
+./scripts/gif-to-mp4.py                  # MP4 alongside every GIF
 ```
 
 The first drives the tool through its `?demo=` deep links with headless Chrome,

@@ -34,19 +34,128 @@ XData UrlMap [ XMLNamespace = "http://www.intersystems.com/urlmap" ]
     <Route Url="/workspace" Method="DELETE" Call="AbandonWorkspace" />
     <Route Url="/adopt"     Method="POST"   Call="Adopt" />
     <Route Url="/reset"     Method="POST"   Call="Reset" />
+    <Route Url="/config"    Method="GET"    Call="GetConfig" />
+    <Route Url="/config"    Method="PUT"    Call="PutConfig" />
 </Routes>
 }
 
 /// Description: Packages we never report — shipped product, not the user's work.
 Parameter SKIPPREFIX = "Ens,EnsLib,EnsPortal,HS,HSMOD,SYS,INFORMATION,Config,Backup,%,CSP,SchemaMap,HCCCICD";
 
-/// Description: Who is calling, and where.
+/// Description: How change references are produced.
+///
+///   auto   — the system allocates &lt;NAMESPACE&gt;-&lt;n&gt;, counting from 1. Default.
+///   manual — the builder types their own ticket reference.
+///
+/// Stored per namespace, because the counter is per namespace and a site may
+/// well want tickets in one and generated identifiers in another.
+ClassMethod IdMode() As %String [ Internal ]
+{
+    Quit $get(^HCCCICD("cfg", "idMode"), "auto")
+}
+
+/// Description: What the next generated reference will be, without consuming
+/// it. The form is asking so it can show the user what they are about to get.
+ClassMethod PeekId() As %String [ Internal ]
+{
+    Quit $namespace _ "-" _ ($get(^HCCCICD("seq"), 0) + 1)
+}
+
+/// Description: Allocate the next reference. $increment so two builders
+/// starting a change at the same moment cannot be handed the same number.
+ClassMethod NextId() As %String [ Internal ]
+{
+    Quit $namespace _ "-" _ $increment(^HCCCICD("seq"))
+}
+
+/// Description: Current settings, plus a preview of the next reference.
+ClassMethod GetConfig() As %Status
+{
+    New $namespace
+    Set tSC = $$$OK
+    Try {
+        Set tSC = ..UseNamespace()
+        If 'tSC { Quit }
+        Set o = {}
+        Set o.idMode = ..IdMode()
+        Set o.nextId = ..PeekId()
+        Set o.namespace = $namespace
+        Set o.ok = 1
+        Set tSC = ..Json(o)
+    } Catch ex {
+        Set tSC = ..Fail(ex)
+    }
+    Quit tSC
+}
+
+/// Description: Change the reference mode.
+ClassMethod PutConfig() As %Status
+{
+    New $namespace
+    Set tSC = $$$OK
+    Try {
+        Set tSC = ..UseNamespace()
+        If 'tSC { Quit }
+        Set body = ..Body()
+        Set mode = ..Str(body, "idMode")
+        If (mode '= "auto") && (mode '= "manual") {
+            Set tSC = ..Fault(400, "idMode must be auto or manual")
+            Quit
+        }
+        Set ^HCCCICD("cfg", "idMode") = mode
+        Set tSC = ..GetConfig()
+    } Catch ex {
+        Set tSC = ..Fail(ex)
+    }
+    Quit tSC
+}
+
+/// Description: Switch to the namespace the caller is actually working in.
+///
+/// The web application is bound to one namespace, but the Interoperability
+/// editor lets the user pick any of them, and the change list has to describe
+/// the one they are looking at. The launcher forwards it as X-IRIS-Namespace.
+///
+/// Callers must New $namespace first so the switch unwinds with the request.
+/// Anything unknown or not accessible is refused rather than silently scanning
+/// the wrong namespace, which would report someone else's productions as this
+/// user's work.
+ClassMethod UseNamespace() As %Status
+{
+    Set tSC = $$$OK
+    Try {
+        Set ns = $get(%request.CgiEnvs("HTTP_X_IRIS_NAMESPACE"))
+        If ns = "" { Set ns = $get(%request.Data("namespace", 1)) }
+        If ns = "" { Quit }
+        Set ns = $zconvert(ns, "U")
+        If ns = $namespace { Quit }
+        If '##class(%SYS.Namespace).Exists(ns) {
+            Set tSC = $$$ERROR($$$GeneralError, "Namespace " _ ns _ " does not exist")
+            Quit
+        }
+        If '##class(%SYS.Namespace).IsAvailable(ns) {
+            Set tSC = $$$ERROR($$$GeneralError, "Namespace " _ ns _ " is not available")
+            Quit
+        }
+        Set $namespace = ns
+    } Catch ex {
+        Set tSC = ex.AsStatus()
+    }
+    Quit tSC
+}
+
+/// Description: Who is calling, and where. The first thing the tool asks, and
+/// the answer it puts in its header.
 ClassMethod WhoAmI() As %Status
 {
+    New $namespace
     Set obj = {}
+    Set sc = ..UseNamespace()
     Set obj.username = $username
     Set obj.namespace = $namespace
+    Set obj.roles = $roles
     Set obj.ok = 1
+    If 'sc { Set obj.namespaceError = $system.Status.GetErrorText(sc) }
     Quit ..Json(obj)
 }
 
@@ -55,8 +164,11 @@ ClassMethod WhoAmI() As %Status
 /// yet part of a change.
 ClassMethod GetState() As %Status
 {
+    New $namespace
     Set tSC = $$$OK
     Try {
+        Set tSC = ..UseNamespace()
+        If 'tSC { Quit }
         Set user = $username
         Set out = {}
 
@@ -135,6 +247,8 @@ ClassMethod GetState() As %Status
         Set out.orphans = orphans
         Set out.namespace = $namespace
         Set out.username = user
+        Set out.idMode = ..IdMode()
+        Set out.nextId = ..PeekId()
         Set out.ok = 1
         Set tSC = ..Json(out)
     } Catch ex {
@@ -148,8 +262,11 @@ ClassMethod GetState() As %Status
 /// new change would hide the fact that nothing was holding those items.
 ClassMethod StartWorkspace() As %Status
 {
+    New $namespace
     Set tSC = $$$OK
     Try {
+        Set tSC = ..UseNamespace()
+        If 'tSC { Quit }
         Set body = ..Body()
         Set user = $username
         Set ref   = ..Str(body, "ref")
@@ -157,8 +274,14 @@ ClassMethod StartWorkspace() As %Status
         Set base  = ..Str(body, "base")
         If base = "" { Set base = "prod" }
 
-        If (ref = "") || (title = "") {
-            Set tSC = ..Fault(400, "A reference and a description are both required")
+        ; In auto mode the system owns the reference and ignores anything the
+        ; client sent. In manual mode an empty box still gets a generated one
+        ; rather than a failure — a change with no identifier is worse than a
+        ; change with a generated identifier.
+        If (..IdMode() = "auto") || (ref = "") { Set ref = ..NextId() }
+
+        If title = "" {
+            Set tSC = ..Fault(400, "Say what you are working on")
             Quit
         }
 
@@ -182,8 +305,11 @@ ClassMethod StartWorkspace() As %Status
 /// being unassigned rather than disappearing.
 ClassMethod AbandonWorkspace() As %Status
 {
+    New $namespace
     Set tSC = $$$OK
     Try {
+        Set tSC = ..UseNamespace()
+        If 'tSC { Quit }
         Set user = $username
         Do ..MarkCurrentAsOrphans(user)
         Kill ^HCCCICD("ws", user)
@@ -198,8 +324,11 @@ ClassMethod AbandonWorkspace() As %Status
 /// there is not one open already.
 ClassMethod Adopt() As %Status
 {
+    New $namespace
     Set tSC = $$$OK
     Try {
+        Set tSC = ..UseNamespace()
+        If 'tSC { Quit }
         Set body = ..Body()
         Set user = $username
         Set ref   = ..Str(body, "ref")
@@ -213,8 +342,9 @@ ClassMethod Adopt() As %Status
         }
 
         If $get(^HCCCICD("ws", user)) = "" {
-            If (ref = "") || (title = "") {
-                Set tSC = ..Fault(400, "A reference and a description are both required")
+            If (..IdMode() = "auto") || (ref = "") { Set ref = ..NextId() }
+            If title = "" {
+                Set tSC = ..Fault(400, "Say what this work is")
                 Quit
             }
             Set slug = $zconvert($translate(user, ".-_", ""), "L")
@@ -239,9 +369,16 @@ ClassMethod Adopt() As %Status
 /// change list goes empty. This is how you begin a clean test.
 ClassMethod Reset() As %Status
 {
+    New $namespace
     Set tSC = $$$OK
     Try {
+        Set tSC = ..UseNamespace()
+        If 'tSC { Quit }
         Set user = $username
+        ; Deliberately keeps ^HCCCICD("seq") and the settings: resetting the
+        ; baseline is "everything here is the starting point", not "this
+        ; namespace never had a change", and reusing spent reference
+        ; numbers would collide with changes already sent forward.
         Kill ^HCCCICD("base", user), ^HCCCICD("seen", user)
         Kill ^HCCCICD("rev", user), ^HCCCICD("orphan", user)
         Kill ^HCCCICD("ws", user)

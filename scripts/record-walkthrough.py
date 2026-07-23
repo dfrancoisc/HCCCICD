@@ -39,7 +39,7 @@ WALKTHROUGH = [
     ("promote1",    3.0, "3",  "Describe what changed and why. The approver reads this, so it is mandatory."),
     ("promote2",    3.0, "4",  "Tick what goes forward. Five of the sixteen items — and she would have sent exactly this."),
     ("promote3",    4.5, "5",  "The safety check follows every reference. Five problems would have broken Test."),
-    ("promote3fix", 4.5, "5",  "One click each, and it re-runs. Five items became twelve — seven would have been missed."),
+    ("promote3fix", 4.5, "5",  "One click each, and it re-runs. Five items became eleven — six would have been missed."),
     ("settings",    4.5, "5",  "Development values stay in development. Four settings have no value in Test at all."),
     ("promote4",    3.5, "6",  "Review. Nothing has moved yet."),
     ("submitted",   3.5, "6",  "Submitted. Twelve items on their way to Test."),

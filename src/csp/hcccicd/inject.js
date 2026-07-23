@@ -23,6 +23,77 @@ var GUIDE_ID   = 'hcccicd-guide';
 var APP        = '/hcccicd/index.html';
 var API        = '/api/hcccicd';
 var SEEN_KEY   = 'hcccicd.guide.seen';
+var LOGIN_CLASS = 'hcccicd-login-mode';
+
+/* The Interoperability editor authenticates its own API calls with a JSON Web
+ * Token, and IRIS will accept that same token for /api/hcccicd because the two
+ * applications share GroupById=%ISCMgtPortal. There is no supported way to ask
+ * the editor for the token, so we watch it go past: every fetch and every
+ * XMLHttpRequest the page makes is inspected for an Authorization header, and
+ * the most recent one is reused.
+ *
+ * This is how the user gets identified as themselves instead of UnknownUser. */
+var AUTH = { bearer: '', exp: 0 };
+
+function noteBearer(v) {
+  if (typeof v !== 'string' || v.indexOf('Bearer ') !== 0) return;
+  AUTH.bearer = v;
+  try {
+    var parts = v.replace(/^Bearer\s+/i, '').split('.');
+    if (parts.length === 3) {
+      AUTH.exp = JSON.parse(atob(parts[1].replace(/-/g, '+').replace(/_/g, '/'))).exp || 0;
+    }
+  } catch (e) { AUTH.exp = 0; }
+}
+
+function scanHeaders(h) {
+  try {
+    if (!h) return;
+    if (typeof Headers !== 'undefined' && h instanceof Headers) {
+      noteBearer(h.get('Authorization') || h.get('authorization'));
+    } else if (Array.isArray(h)) {
+      for (var i = 0; i < h.length; i++) {
+        if (Array.isArray(h[i]) && /^authorization$/i.test(h[i][0])) noteBearer(h[i][1]);
+      }
+    } else if (typeof h === 'object') {
+      noteBearer(h.Authorization || h.authorization);
+    }
+  } catch (e) { }
+}
+
+var origFetch = window.fetch;
+window.fetch = function (input, init) {
+  try {
+    if (typeof Request !== 'undefined' && input instanceof Request) scanHeaders(input.headers);
+    if (init && init.headers) scanHeaders(init.headers);
+  } catch (e) { }
+  return origFetch.apply(this, arguments);
+};
+
+var origSetHeader = XMLHttpRequest.prototype.setRequestHeader;
+XMLHttpRequest.prototype.setRequestHeader = function (name, value) {
+  try { if (/^authorization$/i.test(name)) noteBearer(value); } catch (e) { }
+  return origSetHeader.apply(this, arguments);
+};
+
+/* Nudge the editor into making a call, so its HTTP interceptor mints a token
+ * we can observe. Needed on a cold load where nothing has been requested yet. */
+function primeBearer() {
+  if (AUTH.bearer) return Promise.resolve();
+  return origFetch('/api/interop-editor/v1/' + (currentNamespace() || '') + '/productions',
+                   { credentials: 'include' })
+    .then(function () { }, function () { });
+}
+
+/* Headers for our own calls: the token if we have one, and always the
+ * namespace the user has selected in the editor. */
+function authHeaders() {
+  var h = {};
+  if (AUTH.bearer) h['Authorization'] = AUTH.bearer;
+  var ns = currentNamespace();
+  if (ns) h['X-IRIS-Namespace'] = ns;
+  return h;
+}
 
 /* Whether this user currently has a change open. Polled, because the editor
  * and the tool are separate pages and either can change it. */
@@ -135,6 +206,14 @@ function injectStyles() {
     '  padding:14px 22px; border-top:1px solid #1c2128;',
     '}',
     '#' + GUIDE_ID + ' .box footer .sp { flex:1; }',
+
+    /* Login screen: nothing of ours exists. The class is toggled on every
+       re-render; this rule is what makes the suppression instant rather than
+       one paint behind. */
+    'body.' + LOGIN_CLASS + ' .' + TAB_MARK + ',',
+    'body.' + LOGIN_CLASS + ' #' + BAR_ID + ',',
+    'body.' + LOGIN_CLASS + ' #' + GUIDE_ID + ',',
+    'body.' + LOGIN_CLASS + ' #' + OVERLAY_ID + ' { display:none !important; }',
     '#' + GUIDE_ID + ' .box footer button {',
     '  border:1px solid #2a313c; background:#1a2029; color:#e6e8eb;',
     '  font:inherit; font-size:13px; padding:8px 16px; border-radius:6px; cursor:pointer;',
@@ -150,7 +229,7 @@ function injectStyles() {
 /* ---------------- state ---------------- */
 
 function poll() {
-  return fetch(API + '/state', { credentials: 'include' })
+  return origFetch(API + '/state', { credentials: 'include', headers: authHeaders() })
     .then(function (r) {
       if (r.status === 401 || r.status === 403) { STATE.auth = false; return null; }
       return r.ok ? r.json() : null;
@@ -168,7 +247,27 @@ function poll() {
     .catch(function () { });
 }
 
+/* The editor and its login screen are the same document — Angular swaps the
+ * content in place — so "am I on the login page?" has to be re-answered on
+ * every re-render, not once at load. A visible password field means not signed
+ * in; so does the absence of the dashboard strip the editor always renders.
+ *
+ * Nothing of ours may appear before the user is through: no tab, no bar, and
+ * above all no guide telling a signed-out person to start a change. */
+function onLoginScreen() {
+  return !document.querySelector('.dashboard') ||
+         !!document.querySelector('input[type="password"]:not([hidden])');
+}
+
 function paint() {
+  var login = onLoginScreen();
+  document.body.classList.toggle(LOGIN_CLASS, login);
+  if (login) {
+    /* Retract the guide if the session dropped out from under it. */
+    var g = document.getElementById(GUIDE_ID);
+    if (g) g.classList.remove('show');
+    return;
+  }
   paintTab();
   paintBar();
 }
@@ -275,6 +374,7 @@ function hideGuide(g) {
 }
 
 function showGuide(force) {
+  if (onLoginScreen()) return;
   buildGuide();
   if (!force) {
     var seen = false;
@@ -316,6 +416,14 @@ function open(focus) {
     f.src = APP + '?live=1&t=' + Date.now() +
             (ns ? '&ns=' + encodeURIComponent(ns) : '') +
             (focus ? '&focus=' + focus : '');
+  }
+  /* The tool calls the same API and needs the same credentials. It asks for
+   * them on boot; answer unprompted too, in case it booted before we looked. */
+  if (f.contentWindow) {
+    try {
+      f.contentWindow.postMessage(
+        { type: 'hcccicd:auth', bearer: AUTH.bearer, namespace: ns }, '*');
+    } catch (e) { }
   }
   o.classList.add('open');
   var tab = document.querySelector('.' + TAB_MARK);
@@ -384,9 +492,20 @@ function start() {
 
   /* Read the current state, then guide. The guide only appears when there is
    * genuinely nothing started — somebody mid-change is not interrupted. */
-  poll().then(function () {
-    if (STATE.known && !STATE.open) showGuide(false);
-  });
+  /* Wait for the editor proper before offering any guidance. On a cold load
+   * the login screen is what renders first, and firing here is exactly the bug
+   * that put "start a change" in front of a signed-out user. */
+  var waited = 0;
+  (function awaitEditor() {
+    if (onLoginScreen()) {
+      if ((waited += 400) > 120000) return;
+      setTimeout(awaitEditor, 400);
+      return;
+    }
+    primeBearer().then(poll).then(function () {
+      if (STATE.known && !STATE.open && !onLoginScreen()) showGuide(false);
+    });
+  })();
 
   /* The user may start or abandon a change in another tab. */
   setInterval(poll, 20000);
@@ -396,7 +515,16 @@ function start() {
    * bar and the dot update without waiting for the next poll. */
   window.addEventListener('message', function (e) {
     var d = e.data || {};
-    if (d && d.type === 'hcccicd:state-changed') poll();
+    if (!d) return;
+    if (d.type === 'hcccicd:state-changed') poll();
+    if (d.type === 'hcccicd:need-auth' && e.source) {
+      primeBearer().then(function () {
+        try {
+          e.source.postMessage({ type: 'hcccicd:auth', bearer: AUTH.bearer,
+                                 namespace: currentNamespace() }, '*');
+        } catch (err) { }
+      });
+    }
   });
 }
 

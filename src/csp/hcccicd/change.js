@@ -439,10 +439,45 @@ var S = {
 var LIVE = false;
 var API = '/api/hcccicd';
 
+/* Credentials handed down by the launcher in the Interoperability editor.
+ *
+ * The tool runs in an iframe and cannot mint its own token — the editor owns
+ * that. The launcher watches the editor's own requests, grabs the bearer token
+ * off them, and passes it here on request. That is what makes the API identify
+ * the real user rather than falling back to nobody.
+ *
+ * The namespace comes the same way, because the user picks it in the editor and
+ * the capture has to scan that one, not whichever the web application happens
+ * to be bound to. */
+var AUTH = { bearer: '', namespace: '' };
+
+function askParentForAuth() {
+  if (window.parent === window) return Promise.resolve();
+  return new Promise(function (resolve) {
+    var done = false;
+    function onMsg(e) {
+      var d = e.data || {};
+      if (!d || d.type !== 'hcccicd:auth') return;
+      AUTH.bearer = d.bearer || '';
+      if (d.namespace) AUTH.namespace = d.namespace;
+      if (!done) { done = true; window.removeEventListener('message', onMsg); resolve(); }
+    }
+    window.addEventListener('message', onMsg);
+    try { window.parent.postMessage({ type: 'hcccicd:need-auth' }, '*'); } catch (e) { }
+    /* Standalone, or an older launcher: carry on unauthenticated and let the
+     * API decide. Waiting forever would just hang the page. */
+    setTimeout(function () {
+      if (!done) { done = true; window.removeEventListener('message', onMsg); resolve(); }
+    }, 1200);
+  });
+}
+
 function api(path, opts) {
   opts = opts || {};
   opts.credentials = 'include';
   opts.headers = opts.headers || {};
+  if (AUTH.bearer) opts.headers['Authorization'] = AUTH.bearer;
+  if (AUTH.namespace) opts.headers['X-IRIS-Namespace'] = AUTH.namespace;
   if (opts.body) opts.headers['Content-Type'] = 'application/json';
   return fetch(API + path, opts).then(function (r) {
     return r.text().then(function (txt) {
@@ -545,8 +580,10 @@ function sourceLabel(c) { return c.source === 'IRIS' ? 'Captured from IRIS' : (c
 var DATA = {
   /* LIVE in both modes. */
   whoami: function () {
-    var url = LIVE ? (API + '/whoami') : '/api/agentic/whoami';
-    return fetch(url, { credentials: 'include' })
+    if (LIVE) {
+      return api('/whoami').catch(function () { return null; });
+    }
+    return fetch('/api/agentic/whoami', { credentials: 'include' })
       .then(function (r) { return r.ok ? r.json() : null; })
       .catch(function () { return null; });
   },
@@ -2096,46 +2133,107 @@ function closeWelcome() {
 function runDemo(name) {
   $('#welcome').hidden = true;
 
-  var steps = {
-    guide:        function () { go('guide'); },
-    workspace:    function () { go('workspace'); },
-    changes:      function () { go('changes'); },
-    promote1:     function () { go('promote'); gotoStep(1); },
-    promote2:     function () { go('promote'); gotoStep(2); },
-    promote3:     function () { go('promote'); gotoStep(3); },
-    promote3fix:  function () { go('promote'); gotoStep(3); applyAllFixes(); },
-    settings:     function () { go('promote'); gotoStep(3); applyAllFixes();
-                                showSettingsDiff(envById(S.form.target)); },
-    promote4:     function () { go('promote'); gotoStep(3); applyAllFixes();
-                                ackAll(); gotoStep(4); },
-    submitted:    function () { go('promote'); gotoStep(3); applyAllFixes();
-                                ackAll(); gotoStep(4); submit(); },
-    requests:     function () { go('requests'); },
-    environments: function () { go('environments'); },
-    orphans:      function () { go('workspace'); },
-    collision:    function () { go('workspace'); runCollisionCheck(false); },
+  /* The safety check is asynchronous — it reads the target baseline before it
+   * can analyse anything. Every state that depends on its findings has to wait
+   * for it, or it acts on an empty list and silently does nothing. That bug
+   * shipped once already: a frame captioned "five became twelve" showing five
+   * problems still on screen. */
+  function check() { return runCheck(); }
+
+  var steps;
+  steps = {
+    guide:        function () { go('guide'); return done(); },
+    workspace:    function () { go('workspace'); return done(); },
+    changes:      function () { go('changes'); return done(); },
+    promote1:     function () { go('promote'); gotoStep(1); return done(); },
+    promote2:     function () { go('promote'); gotoStep(2); return done(); },
+    promote3:     function () { go('promote'); gotoStep(3); return check(); },
+    promote3fix:  function () { return steps.promote3().then(applyAllFixes); },
+    settings:     function () { return steps.promote3fix().then(function () {
+                                  showSettingsDiff(envById(S.form.target));
+                                }); },
+    promote4:     function () { return steps.promote3fix().then(function () {
+                                  ackAll(); gotoStep(4);
+                                }); },
+    submitted:    function () { return steps.promote4().then(function () { submit(); }); },
+    requests:     function () { go('requests'); return done(); },
+    environments: function () { go('environments'); return done(); },
+    orphans:      function () { go('workspace'); return done(); },
+    collision:    function () { go('workspace'); return runCollisionCheck(false); },
     adopted:      function () {
                     $('#orphan-ref').value = 'INT-4830';
                     $('#orphan-title').value = 'Lab results feed to the LIS';
                     S.collisionsChecked = true;
                     adoptOrphans();
                     go('workspace');
-                  }
+                    return done();
+                  },
+
+    /* Live-mode states. These run against whatever is really in the namespace
+     * rather than the fixture, so a recorded journey shows real capture. */
+    livechanges:  function () { go('changes'); return done(); },
+    livepick:     function () {
+                    fillFormFromWorkspace();
+                    S.picked = {};
+                    wsChanges().forEach(function (c) {
+                      if (c.type === 'production') S.picked[c.key] = true;
+                    });
+                    go('promote'); gotoStep(2);
+                    return done();
+                  },
+    livecheck:    function () { return steps.livepick().then(function () {
+                                  gotoStep(3); return check();
+                                }); },
+    livefix:      function () { return steps.livecheck().then(applyAllFixes); },
+    livesubmit:   function () { return steps.livefix().then(function () {
+                                  ackAll(); gotoStep(4); submit();
+                                }); }
   };
 
   var fn = steps[name];
-  if (fn) fn();
+  return fn ? fn() : done();
 
-  /* Resolve every blocking finding, following the chain the way a user would
-   * by clicking each "Add …" in turn. */
+  function done() { return Promise.resolve(); }
+
+  /* Resolve every blocking finding the way a user would — click each "Add …"
+   * in turn, letting the check re-run and surface whatever the newly added
+   * item drags in behind it. analyse() is synchronous, so once the first
+   * check has resolved this can loop without waiting again. */
   function applyAllFixes() {
-    for (var guard = 0; guard < 40; guard++) {
+    for (var guard = 0; guard < 60; guard++) {
       var f = S.findings.filter(function (x) { return x.fixKey && x.sev === 'block'; })[0];
       if (!f) break;
       S.picked[f.fixKey] = true;
       S.findings = analyse(pickedKeys(), S.form.target, BASELINE[S.form.target] || {});
     }
     renderFindings();
+  }
+
+  /* Step 1 is mandatory and, in live mode, empty — there is no fixture to
+   * pre-fill it. A recorded run has to answer it like a user would, or every
+   * later step bounces back here on validation. */
+  function fillFormFromWorkspace() {
+    var items = wsChanges();
+    var prod = items.filter(function (c) { return c.type === 'production'; })[0];
+    var title = (S.ws && S.ws.title) || (prod ? shortName(prod.name) : 'Interface change');
+
+    if (!$('#pr-title').value) $('#pr-title').value = title;
+    if (!$('#pr-what').value) {
+      $('#pr-what').value = items.map(function (c) {
+        return (c.action === 'new' ? 'New ' : 'Updated ') +
+               TYPES[c.type].label.toLowerCase() + ' ' + shortName(c.name) + '.';
+      }).join(' ') || 'No items captured yet.';
+    }
+    if (!$('#pr-why').value) {
+      $('#pr-why').value = 'Stands up the lab results interface in Test so the ' +
+        'analyser feed can be validated end to end before go-live. Ticket ' +
+        ((S.ws && S.ws.ref) || 'unassigned') + '.';
+    }
+    if (!$('#pr-rollback').value) {
+      $('#pr-rollback').value = 'Disable the production in Test and redeploy the ' +
+        'previous version. No data migration is involved.';
+    }
+    validateStep1();
   }
 
   function ackAll() {
@@ -2175,6 +2273,8 @@ function boot() {
       return DATA.refresh().then(function () {
         renderHeader();
         go('workspace');
+        var d = p.get('demo');
+        if (d) { runDemo(d); return; }
         maybeShowWelcome();
       }).catch(function (e) {
         renderHeader();

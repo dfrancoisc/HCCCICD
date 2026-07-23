@@ -1,27 +1,95 @@
-<!doctype html><meta charset=utf-8><title>Interop Editor (harness, signed in)</title>
-<style>body{margin:0;background:#f4f5f7;font:14px -apple-system,sans-serif}
-.topbar{background:#1a1a2e;color:#fff;padding:14px 20px;font-size:15px;font-weight:600}
-.dashboard{display:flex;flex-wrap:wrap;padding:10px;background:#fff;border-bottom:1px solid #ddd}
-.navbuttons{margin:5px;height:32px;padding:0 14px;display:flex;align-items:center;background:#eee;border:1px solid #ccc;border-radius:4px;font-size:13px}
-.content{padding:26px}</style>
-<div class="topbar">Interoperability</div>
+<!doctype html>
+<meta charset="utf-8">
+<title>Interoperability</title>
+<!--
+  Stand-in for the shipped IRIS for Health Interoperability editor.
+
+  The real editor sits behind a login the recorder cannot pass — it will not
+  type anyone's password — so the editor-side frames of the walkthrough are
+  captured here instead. Only the Change Control state call is stubbed; the
+  injected launcher, guide, reminder bar and status dot are the real
+  inject.js, rendering exactly as they do in the shipped editor.
+
+    ?state=none   no change started        (amber bar, guide shown)
+    ?state=open   a change is in progress  (green bar)
+    ?guide=0      suppress the first-visit guide
+-->
+<style>
+  body { margin:0; background:#f4f5f7; color:#1a1a2e;
+         font:14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  .topbar { background:#1a1a2e; color:#fff; padding:13px 20px; font-size:15px; font-weight:600;
+            display:flex; align-items:center; gap:10px; }
+  .topbar .ns { font-size:12px; font-weight:400; opacity:.65; }
+  .dashboard { display:flex; flex-wrap:wrap; padding:9px; background:#fff; border-bottom:1px solid #dcdfe4; }
+  .navbuttons { margin:5px; height:32px; padding:0 14px; display:flex; align-items:center;
+                background:#eef0f3; border:1px solid #ccd0d6; border-radius:4px; font-size:13px; }
+  .content { padding:24px 28px; }
+  .content h2 { margin:0 0 6px; font-size:19px; }
+  .content p  { margin:0 0 18px; color:#5b6472; max-width:70ch; }
+  .grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:14px; max-width:900px; }
+  .card { background:#fff; border:1px solid #dcdfe4; border-radius:7px; padding:15px 17px; }
+  .card h3 { margin:0 0 4px; font-size:14px; }
+  .card p  { margin:0; font-size:12.5px; color:#7a828f; }
+  .note { margin-top:22px; font-size:12px; color:#98a0ac; }
+</style>
+
+<div class="topbar">Interoperability <span class="ns">HSCUSTOM</span></div>
 <div class="dashboard">
-  <div class="navbuttons">Productions</div><div class="navbuttons">Business Rules</div>
-  <div class="navbuttons">Data Transformations</div><div class="navbuttons">Lookup Tables</div>
+  <div class="navbuttons">Productions</div>
+  <div class="navbuttons">Business Rules</div>
+  <div class="navbuttons">Data Transformations</div>
+  <div class="navbuttons">Lookup Tables</div>
 </div>
-<div class="content"><h2>Configure</h2><p>Stand-in for the shipped editor. Fetch is stubbed so the
-signed-in render path can be verified without credentials.</p></div>
+
+<div class="content">
+  <h2>Configure</h2>
+  <p>Build and manage interfaces for this namespace.</p>
+  <div class="grid">
+    <div class="card"><h3>Productions</h3><p>Create and configure a production and its business hosts.</p></div>
+    <div class="card"><h3>Business Rules</h3><p>Route messages with rule sets and constraints.</p></div>
+    <div class="card"><h3>Data Transformations</h3><p>Map between message formats with DTL.</p></div>
+  </div>
+  <p class="note">
+    Stand-in for the shipped editor, used to record the launcher, guide and
+    reminder bar without a login. Everything Change Control draws on this page
+    is the real inject.js.
+  </p>
+</div>
+
 <script>
-// Stub only the Change Control state call; everything else passes through.
-var _f = window.fetch;
-window.fetch = function (u, o) {
-  if (String(u).indexOf('/api/hcccicd/state') >= 0) {
-    var body = JSON.parse(document.body.getAttribute('data-state'));
-    return Promise.resolve({ ok: true, status: 200, json: function () { return Promise.resolve(body); } });
+  var q = new URLSearchParams(location.search);
+
+  var STATES = {
+    none: { workspace: null, changes: [], orphans: [] },
+    open: {
+      workspace: { ref: 'INT-5104', title: 'Lab results interface',
+                   branch: 'interface/d.franco/INT-5104', usrns: 'USRDFRAN', base: 'prod' },
+      changes: [{}, {}], orphans: []
+    }
+  };
+
+  var state = STATES[q.get('state') || 'none'] || STATES.none;
+
+  // Suppress the first-visit guide when the frame is meant to show the bar
+  // on its own. Headless Chrome starts with an empty profile every run, so
+  // without this the guide would always be up.
+  if (q.get('guide') === '0') {
+    try { localStorage.setItem('hcccicd.guide.seen', '1'); } catch (e) {}
+  } else {
+    try { localStorage.removeItem('hcccicd.guide.seen'); } catch (e) {}
   }
-  return _f.apply(this, arguments);
-};
-var q = new URLSearchParams(location.search);
-document.body.setAttribute('data-state', q.get('state') || '{"workspace":null,"changes":[],"orphans":[]}');
+
+  // Stub only the Change Control state call; everything else passes through.
+  var _f = window.fetch;
+  window.fetch = function (u) {
+    if (String(u).indexOf('/api/hcccicd/state') >= 0) {
+      return Promise.resolve({
+        ok: true, status: 200,
+        json: function () { return Promise.resolve(state); }
+      });
+    }
+    return _f.apply(this, arguments);
+  };
 </script>
+
 <script src="/hcccicd/inject.js"></script>
