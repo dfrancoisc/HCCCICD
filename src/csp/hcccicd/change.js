@@ -1817,18 +1817,26 @@ function landedIn(r) {
   return e ? e.name : '—';
 }
 
-function renderRequests() {
-  /* In live mode the list is server-held, so pull it before drawing. The
-   * redraw below runs on whatever is cached; the fetch triggers a second one. */
-  if (LIVE && !S.reqLoading) {
-    S.reqLoading = true;
-    DATA.liveRequests().then(function () {
+/* Fetch the server-held requests, then draw once.
+ *
+ * This must never be called from renderRequests: it re-renders on completion,
+ * and a renderer that fetches is a renderer that fetches forever. */
+function loadRequests() {
+  if (!LIVE) { renderRequests(); return; }
+  if (S.reqLoading) return;
+  S.reqLoading = true;
+  $('#req-list').innerHTML = '<div class="banner banner-ok">Reading&hellip;</div>';
+  DATA.liveRequests()
+    .then(function () { S.reqLoading = false; renderRequests(); renderHeader(); })
+    .catch(function (e) {
       S.reqLoading = false;
-      renderRequests();
-      renderHeader();
-    }).catch(function () { S.reqLoading = false; });
-  }
+      $('#req-list').innerHTML =
+        '<div class="banner banner-err">Could not read your change requests: ' +
+        esc(e.message) + '</div>';
+    });
+}
 
+function renderRequests() {
   if (!REQUESTS.length) {
     $('#req-list').innerHTML =
       '<div class="banner banner-ok">You have not sent anything forward yet. ' +
@@ -1901,9 +1909,10 @@ function renderRequests() {
                  .then(function () { return DATA.liveRequests(); })
                  .then(function () {
                    renderRequests();
+                   renderHeader();
                    toast(r.id + ' sent on to ' + nx.name);
                  })
-                 .catch(function (e) { toast(e.message); });
+                 .catch(function (e) { toast('Could not send it on: ' + e.message); });
                return;
              }
              r.stages.forEach(function (s) {
@@ -1941,9 +1950,10 @@ function renderRequests() {
                .then(function () { return DATA.liveRequests(); })
                .then(function () {
                  renderRequests();
+                 renderHeader();
                  toast(id + ' approved — deployed to ' + landedIn(reqById(id)));
                })
-               .catch(function (e) { toast(e.message); });
+               .catch(function (e) { toast('Could not approve it: ' + e.message); });
            } }]);
     });
   });
@@ -2062,7 +2072,7 @@ function go(screen) {
   if (screen === 'workspace')    renderWorkspace();
   if (screen === 'changes')      renderChanges();
   if (screen === 'promote')      { renderPromoteIntro(); gotoStep(S.step); }
-  if (screen === 'requests')     renderRequests();
+  if (screen === 'requests')     loadRequests();
   if (screen === 'environments') renderEnvironments();
   $('#pane').scrollTop = 0;
 }
