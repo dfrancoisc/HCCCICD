@@ -104,6 +104,22 @@ halt
 #   api   — POST to the tool's API
 # --------------------------------------------------------------------------
 
+def tool_url(host, query):
+    """Wrap a tool URL in the recording host so it can authenticate.
+
+    The tool asks its parent for the editor's access token. Opened directly it
+    has no parent, gets a 401 and renders the sign-in prompt instead of the
+    walkthrough, so every capture goes through record.html.
+    """
+    import urllib.parse
+    inner = f"{host}/hcccicd/index.html?{query}"
+    auth = os.environ.get("HCCCICD_AUTH", "")
+    return (f"{host}/hcccicd/_harness/record.html"
+            f"?src={urllib.parse.quote(inner, safe='')}"
+            f"&auth={urllib.parse.quote(auth, safe='')}"
+            f"&ns={os.environ.get('HCCCICD_NS', 'HSCUSTOM')}")
+
+
 def scenes(host):
     tool = f"{host}/hcccicd/index.html"
     harness = f"{host}/hcccicd/_harness/editor.html"
@@ -119,12 +135,12 @@ def scenes(host):
         ("shot", f"{harness}?state=none&guide=0", 4.5, "3",
          "Dismiss it and the strip stays. Amber means nothing is started, so nothing you build belongs to a change yet."),
 
-        ("shot", f"{tool}?live=1&focus=start", 5.0, "4",
+        ("shot", tool_url(host, "live=1&focus=start"), 5.0, "4",
          "Open Change Control. One form: your ticket reference and one line saying what you are about to do."),
 
         ("api", "start", 0, "", ""),
 
-        ("shot", f"{tool}?live=1", 5.0, "5",
+        ("shot", tool_url(host, "live=1"), 5.0, "5",
          "That is the whole setup. You now have a private copy of the configuration and a hold on anything you touch."),
 
         ("shot", f"{harness}?state=open&guide=0", 4.0, "6",
@@ -132,36 +148,36 @@ def scenes(host):
 
         ("iris", CREATE_PRODUCTION, 0, "", ""),
 
-        ("shot", f"{tool}?live=1&demo=livechanges", 6.0, "7",
+        ("shot", tool_url(host, "live=1&demo=livechanges"), 6.0, "7",
          "Create an empty production in the editor. It appears here on its own — version 1, no export, nothing to remember."),
 
         ("iris", CREATE_SERVICE, 0, "", ""),
 
-        ("shot", f"{tool}?live=1&demo=livechanges", 6.0, "8",
+        ("shot", tool_url(host, "live=1&demo=livechanges"), 6.0, "8",
          "Add a business service to it. Both are captured, and the production moves to version 2."),
 
-        ("shot", f"{tool}?live=1&demo=livepick", 5.5, "9",
+        ("shot", tool_url(host, "live=1&demo=livepick"), 5.5, "9",
          "Time to send it to Test. Tick the production — and forget the business service, which is the easy mistake."),
 
-        ("shot", f"{tool}?live=1&demo=livecheck", 7.0, "10",
+        ("shot", tool_url(host, "live=1&demo=livecheck"), 7.0, "10",
          "The safety check reads the production definition, finds the service it points at, and sees it is not selected."),
 
-        ("shot", f"{tool}?live=1&demo=livefix", 6.0, "11",
+        ("shot", tool_url(host, "live=1&demo=livefix"), 6.0, "11",
          "One click adds it. Without this the deployment would have succeeded and the production would not have started."),
 
-        ("shot", f"{tool}?live=1&demo=livesubmit", 5.0, "12",
+        ("shot", tool_url(host, "live=1&demo=livesubmit"), 5.0, "12",
          "Submitted, with both items. Nothing moved until this point."),
 
-        ("shot", f"{tool}?live=1&demo=liverequests", 5.5, "13",
+        ("shot", tool_url(host, "live=1&demo=liverequests"), 5.5, "13",
          "The change is live in Development and waiting for someone to approve it into Test."),
 
-        ("shot", f"{tool}?live=1&demo=liveapproved", 5.5, "14",
+        ("shot", tool_url(host, "live=1&demo=liveapproved"), 5.5, "14",
          "Approved. The pipeline deploys it into Test on its own — there is nothing to press."),
 
-        ("shot", f"{tool}?live=1&demo=livepromote", 5.5, "15",
+        ("shot", tool_url(host, "live=1&demo=livepromote"), 5.5, "15",
          "Happy with Test? Send the same two items on to Production. You do not pick them again."),
 
-        ("shot", f"{tool}?live=1&demo=livedone", 6.0, "16",
+        ("shot", tool_url(host, "live=1&demo=livedone"), 6.0, "16",
          "Production needs two approvals and a change window. That is the whole route, start to finish."),
 
         ("iris", CLEANUP, 0, "", ""),
@@ -220,11 +236,12 @@ def iris(container, namespace, script):
 
 
 def api(host, what):
+    auth = ["-H", f"Authorization: {os.environ['HCCCICD_AUTH']}"]
     if what == "reset":
-        subprocess.run(["curl", "-s", "-o", "/dev/null", "-X", "POST",
+        subprocess.run(["curl", "-s", "-o", "/dev/null", "-X", "POST", *auth,
                         f"{host}/api/hcccicd/reset"], check=True)
     elif what == "start":
-        subprocess.run(["curl", "-s", "-o", "/dev/null", "-X", "POST",
+        subprocess.run(["curl", "-s", "-o", "/dev/null", "-X", "POST", *auth,
                         "-H", "Content-Type: application/json",
                         "-d", '{"ref":"INT-5104","title":"Lab results interface"}',
                         f"{host}/api/hcccicd/workspace"], check=True)
@@ -276,6 +293,22 @@ def main():
 
     if not os.path.exists(CHROME):
         sys.exit(f"Google Chrome not found at {CHROME}")
+
+    # The capture API authenticates as a real user. Credentials come from the
+    # environment so nothing lands in the repository:
+    #
+    #   HCCCICD_USER=_SYSTEM HCCCICD_PASSWORD=... ./scripts/record-production-journey.py
+    user = os.environ.get("HCCCICD_USER")
+    pwd = os.environ.get("HCCCICD_PASSWORD")
+    if not (user and pwd):
+        sys.exit("set HCCCICD_USER and HCCCICD_PASSWORD — the capture API "
+                 "authenticates as a real user and the recorder has to pass "
+                 "that through the way the editor does")
+    import base64
+    os.environ["HCCCICD_AUTH"] = "Basic " + base64.b64encode(
+        f"{user}:{pwd}".encode()).decode()
+    os.environ.setdefault("HCCCICD_NS", args.namespace)
+
     os.makedirs(os.path.join("docs", "img"), exist_ok=True)
 
     imgs, durations = [], []

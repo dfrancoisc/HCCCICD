@@ -18,79 +18,72 @@ something buildable, not a wish.
 
 ---
 
-## The whole thing, start to finish
+## Watch it — one run, start to finish
 
-Sign in, start a change, create a production, and send it to Test. Twelve steps,
-no cuts.
+Sign in, start a change, create a production, put it under source control,
+and move it to the next environment. Sixteen steps, one take, no cuts.
 
-![Creating a production under Change Control, end to end](docs/img/production-journey.gif)
+![Creating a production and promoting it, end to end](docs/img/production-journey.gif)
 
-<sub>Plays automatically above. [Download the MP4](docs/img/production-journey.mp4) if you want to pause and scrub.</sub>
+<sub>Plays automatically above. [Download the MP4](docs/img/production-journey.mp4) to pause and scrub.</sub>
 
-This one is **not a mock-up**. Between frames the recorder resets the baseline,
+| | |
+|---|---|
+| **1** | Sign in to Health Connect Cloud |
+| **2–3** | Open Interoperability — the guide appears before anything is touched, and an amber strip says nothing is started |
+| **4–5** | Start a change: a ticket reference and one line. You now have a private copy and a hold on what you touch |
+| **6** | Back in the editor the strip is green. Go and build |
+| **7** | Create an empty production — it appears on its own, version 1 |
+| **8** | Add a business service — production moves to version 2 |
+| **9–10** | Send it to Test. Tick the production, forget the service — the safety check blocks it |
+| **11–12** | One click adds the service. Submit |
+| **13–14** | Deployed to Development, approved into Test |
+| **15–16** | Send the same items on to Production — no re-picking. Two approvals and a change window |
+
+**This is not a mock-up.** Between frames the recorder resets the baseline,
 starts a change through the API, and creates a real production and a real
-business service in the namespace. What you see in the tool is that namespace
-being read back: version 1 on the empty production, version 2 once the service
-is wired into it, and a safety check that finds the dependency by parsing the
-production's own definition.
+business service in the namespace. What the tool shows is that namespace read
+back: version 1 on the empty production, version 2 once the service is wired in,
+and a safety check that finds the dependency by parsing the production's own
+`ProductionDefinition`.
 
-The last two steps are the point of the whole tool. The builder ticks the
-production and forgets the business service — the single most common way a
-promotion fails. The check reads `ProductionDefinition`, sees
-`Demo.Lab.Service.LabResultIn` referenced and not selected, and blocks the
-submission until it is added. Without it the deployment reports success and the
-production does not start in Test.
+Steps 9–11 are the reason the tool exists. The builder ticks the production and
+forgets the business service — the single most common way a promotion fails. The
+check sees `Demo.Lab.Service.LabResultIn` referenced and not selected, and
+refuses to submit until it is added. Without it the deployment reports success
+and the production does not start in Test.
 
 Two frames are staged, and both say so on screen. The sign-in frame is the real
 login page captured but never submitted — the recorder does not type anyone's
 password. The two editor frames use a stand-in page, because the shipped editor
 is behind that login; everything Change Control draws on them is the real
-`inject.js`. Regenerate the whole thing with
-`./scripts/record-production-journey.py`.
+`inject.js`.
 
----
+<details>
+<summary>Three shorter recordings — onboarding, the safety check in depth, and recovering unassigned work</summary>
 
-## It tells you what to do before you touch anything
+<br>
 
-The first session is the one that goes wrong, so the instruction arrives
-unprompted. Sign in, open the Interoperability page, and the guide is already
-there — before a single production has been created.
+**The editor tells you what to do before you touch anything.** The first session
+is the one that goes wrong, so the instruction arrives unprompted.
 
 ![Change Control onboarding in the Interoperability editor](docs/img/onboarding.gif)
 
-<sub>Plays automatically above. [Download the MP4](docs/img/onboarding.mp4) if you want to pause and scrub.</sub>
-
-A strip along the bottom of the editor holds the answer to "am I covered right
-now?" for as long as the user is building: amber and naming the risk while
-nothing is started, quiet green once a change is open. The dot on the toolbar
-tab carries the same state. Once a change is open the guide stops appearing —
-nobody mid-change is interrupted.
-
----
-
-## Watch it end to end
-
-Eight steps, from starting a change to sending it on to the next environment.
-The safety check is the part worth watching: five items become eleven because
-six dependencies would have been missed.
+**The safety check, on a bigger change.** Five items become eleven because six
+dependencies would have been missed.
 
 ![Change Control walkthrough](docs/img/walkthrough.gif)
 
-<sub>Plays automatically above. [Download the MP4](docs/img/walkthrough.mp4) if you want to pause and scrub.</sub>
-
-### If you built something before starting a change
-
-The common first-time case. Nothing is lost — every save was captured anyway —
-but nothing was holding those items either, so the tool checks whether a
-colleague edited the same one while yours was unassigned.
+**Built something before starting a change?** Nothing is lost — but nothing was
+holding those items either, so the tool checks whether a colleague edited the
+same one.
 
 ![Recovering work built before a change was started](docs/img/recovery.gif)
 
-<sub>Plays automatically above. [Download the MP4](docs/img/recovery.mp4) if you want to pause and scrub.</sub>
+These three run on seeded fixture data (`?demo=`), so they show a populated
+change with a colleague holding items. Only the run above is against real IRIS.
 
-> Both are recorded from the seeded demo (`?demo=`), so they show a populated
-> change with a colleague holding items. A real first session starts empty.
-> Re-record with `./scripts/record-walkthrough.py`.
+</details>
 
 ---
 
@@ -402,10 +395,16 @@ The user interface does not change.
 ## Recording the walkthroughs
 
 ```bash
-./scripts/record-production-journey.py   # the end-to-end journey, against real IRIS
-./scripts/record-walkthrough.py          # the three fixture walkthroughs
-./scripts/gif-to-mp4.py                  # MP4 alongside every GIF
+HCCCICD_USER=_SYSTEM HCCCICD_PASSWORD=... ./scripts/record-production-journey.py
+./scripts/record-walkthrough.py    # the three fixture recordings
+./scripts/gif-to-mp4.py            # MP4 alongside every GIF
 ```
+
+The journey recorder needs credentials because the capture API authenticates as
+a real user. It passes them through `scripts/harness/record.html`, a full-bleed
+iframe that answers the same `hcccicd:need-auth` handshake the Interoperability
+editor does — so the tool authenticates exactly as it would in production.
+Nothing is stored; the credential comes from the environment.
 
 The first drives the tool through its `?demo=` deep links with headless Chrome,
 captures a full-resolution frame per state, adds a caption bar and assembles the
