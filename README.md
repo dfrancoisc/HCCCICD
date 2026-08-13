@@ -144,6 +144,11 @@ rather than deployed into.
 
 ## Documentation
 
+- **[Product requirements (PRD.docx)](docs/PRD.docx)** — the outcome-driven PRD
+  for the non-developer Integration Builder: the problem, the persona, the
+  six-step user journey (session reference → private workspace → build →
+  pick what travels → safety check → promote) with its workflow diagram,
+  prioritized user stories, risks, and success metrics
 - **[Build specification](docs/SPECIFICATION.md)** — the handover document for a
   development team building the real tool: persona, user stories, numbered
   requirements, integration architecture, and an honest account of what the
