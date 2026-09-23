@@ -172,6 +172,8 @@ function injectStyles() {
     '#' + BAR_ID + ' button.primary { background:#d97706; border-color:#d97706; color:#fff; }',
     '#' + BAR_ID + ' button.primary:hover { background:#f59e0b; }',
     '#' + BAR_ID + '.ok button.primary { background:#059669; border-color:#059669; }',
+    '#' + BAR_ID + ' button.close { background:transparent; border-color:transparent; font-size:18px; line-height:1; padding:2px 8px; opacity:.75; }',
+    '#' + BAR_ID + ' button.close:hover { opacity:1; background:rgba(255,255,255,.12); }',
 
     /* ---- first-visit guide ---- */
     '#' + GUIDE_ID + ' {',
@@ -305,10 +307,29 @@ function buildBar() {
   bar.innerHTML =
     '<span class="msg"></span>' +
     '<button type="button" class="why">What is this?</button>' +
-    '<button type="button" class="act primary">Start a change</button>';
+    '<button type="button" class="act primary">Start a change</button>' +
+    '<button type="button" class="close" aria-label="Dismiss this reminder" title="Dismiss — it returns only when something changes">&times;</button>';
   document.body.appendChild(bar);
   bar.querySelector('.why').addEventListener('click', function () { showGuide(true); });
   bar.querySelector('.act').addEventListener('click', function () { open('start'); });
+  bar.querySelector('.close').addEventListener('click', function () {
+    /* Remember what the bar said when it was dismissed. It stays hidden for
+     * this browser session until the state changes (a change is started, or
+     * the number of waiting items changes); the Change Control tab remains. */
+    try { sessionStorage.setItem(DISMISS_KEY, currentBarSig()); } catch (e) {}
+    barSig = '';
+    paintBar();
+  });
+}
+
+var DISMISS_KEY = 'hcccicd.bar.dismissed';
+
+function currentBarSig() {
+  return [STATE.open ? 'open' : 'none', STATE.ref, STATE.items, STATE.orphans].join('|');
+}
+
+function dismissedSig() {
+  try { return sessionStorage.getItem(DISMISS_KEY) || ''; } catch (e) { return ''; }
 }
 
 /* Signature of what the bar currently says. Rewriting identical markup is not
@@ -327,7 +348,12 @@ function paintBar() {
     return;
   }
 
-  var sig = [STATE.open ? 'open' : 'none', STATE.ref, STATE.items, STATE.orphans].join('|');
+  var sig = currentBarSig();
+  if (sig === dismissedSig()) {
+    /* Dismissed by the user for exactly this state. */
+    if (barSig !== 'dismissed') { barSig = 'dismissed'; bar.classList.remove('show'); }
+    return;
+  }
   if (sig === barSig) return;
   barSig = sig;
 
