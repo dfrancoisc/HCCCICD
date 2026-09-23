@@ -8,7 +8,9 @@
 <Keywords>iris healthconnect cicd source-control change-control promotion deployment interop production dtl bpl routing-rule governance</Keywords>
 <Packaging>module</Packaging>
 <SourcesRoot>src/cls</SourcesRoot>
-<SystemRequirements>InterSystems IRIS for Health or Health Connect 2023.1 or later</SystemRequirements>
+<!-- InterSystems IRIS for Health or Health Connect 2023.1 or later.
+     IPM only accepts the attribute form of SystemRequirements. -->
+<SystemRequirements Version=">=2023.1" />
 
 <!-- ObjectScript classes: the capture/promotion REST API and the installer. -->
 <Resource Name="HCCCICD.PKG"/>
@@ -19,9 +21,8 @@
      and the API below is what actually enforces identity. -->
 <CSPApplication
     Url="/hcccicd"
-    Path="${cspdir}hcccicd"
-    DeployPath="hcccicd"
-    SourcePath="${root}src/csp/hcccicd"
+    SourcePath="/src/csp/hcccicd/"
+    DeployPath="${cspdir}hcccicd"
     Recurse="1"
     AuthenticationMethods="96"
     PasswordAuthEnabled="1"
