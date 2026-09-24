@@ -96,7 +96,7 @@ flowchart TB
 
         subgraph EDITOR["IRIS for Health Interoperability editor<br/><i>/ui/interop/interop-editor</i>"]
             direction TB
-            NAV["Dashboard tab strip<br/><b>Change Control</b> + status dot"]
+            NAV["Editor toolbar icon group<br/><b>Change Control</b> icon + status dot"]
             INJ["<b>inject.js</b><br/>appended by the installer<br/>polls state · reminder bar · first-visit guide"]
             BAR["Reminder bar<br/><i>you have not started a change</i>"]
             NAV --- INJ
@@ -191,9 +191,9 @@ flowchart TB
 ### Request flow, in words
 
 1. The installer appends one `<script>` to the shipped editor page. `inject.js`
-   adds the **Change Control** tab and immediately calls `GET /state`.
+   adds the **Change Control** icon to the editor's toolbar group and immediately calls `GET /state`.
 2. If no change is open, the first-visit guide appears and a reminder bar stays
-   pinned to the bottom of the editor until one is started. The tab's status dot
+   pinned to the bottom of the editor until one is started. The icon's status dot
    is amber; green once a change is open.
 3. Opening the tool loads `/hcccicd/index.html?live=1` in a full-screen iframe.
    Everything it renders goes through the `DATA` layer.

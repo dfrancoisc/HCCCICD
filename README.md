@@ -39,7 +39,9 @@ Both routes do the same three things: compile `HCCCICD.*`, create the `/hcccicd`
 and `/api/hcccicd` web applications, and append one `<script>` tag to the shipped
 Interoperability editor page — backing it up first.
 
-Then open **Interoperability** and look for **Change Control** in the toolbar.
+Then open **Interoperability** and look for the **Change Control** icon (a branch
+symbol with a status dot) at the right end of the editor's toolbar strip. Hover
+it for what it does and whether a change is open.
 
 To remove it: `zpm "uninstall hcccicd"`, or
 `do ##class(HCCCICD.Install.Setup).Revert(1)`. The editor page is restored from
@@ -94,22 +96,24 @@ All of this is set inside the tool, under **Environments**.
 Yes. Both are installed on the instance together and share the Interoperability
 editor page. Checked rather than assumed:
 
-- Both launchers are loaded by the editor and share **zero** identifiers —
-  16 markers on one side, 7 on the other, no overlap
+- Both launchers are loaded by the editor and share no state. The one thing
+  they deliberately share is the toolbar group (`isc-editor-tools`, buttons
+  `isc-tool-btn`, tooltip `#isc-tool-tip`): whichever script loads first builds
+  it, the other adds its icon to it, and either can be removed on its own
 - Four separate web applications, no path collision: `/agentic`, `/api/agentic`,
   `/hcccicd`, `/api/hcccicd`
 - Both APIs answer `200` with the other installed
 - State lives in `^HCCCICD` only; nothing belonging to the other application is
   written
-- Its **Clean Productions** and **Delete Artifacts** buttons still fire with this
-  loaded — confirmed by clicking them with both launchers on one page
+- Its **Clean up namespace** (bin) icon still works with this loaded
 
-The recording at the top is the real editor with both installed: the Change
-Control tab sits beside Integration Spec, Clean Productions and Delete Artifacts.
+With both installed, the toolbar group shows three icons side by side: AI
+Settings, Change Control and the bin. (The recording at the top predates the
+icon toolbar and shows the older text tabs.)
 
-One thing worth knowing. **Delete Artifacts** skips anything named
-`AgenticInterop.*` — that guard stops it deleting its own code, so test artifacts
-named under that prefix are invisible to it. Name them something else.
+One thing worth knowing. The bin skips anything named `AgenticInterop.*` — that
+guard stops it deleting its own code, so test artifacts named under that prefix
+are invisible to it. Name them something else.
 
 ---
 
