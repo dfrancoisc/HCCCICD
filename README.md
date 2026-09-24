@@ -27,6 +27,8 @@ Requires InterSystems IRIS for Health or Health Connect 2023.1 or later.
 zpm "load https://github.com/dfrancoisc/HCCCICD.git"
 ```
 
+Verified with IPM 0.10.8 on IRIS for Health 2026.3 (`zpm "load <folder>"` from a clone), September 2026. Earlier versions of `module.xml` were rejected by IPM (SystemRequirements text form, `${root}` in the static bundle path); use the deploy script only if you are on such a version.
+
 **Without IPM** — clone, then run the deploy script against a running container:
 
 ```
