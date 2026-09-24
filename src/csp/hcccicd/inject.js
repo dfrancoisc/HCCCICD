@@ -1,10 +1,11 @@
 /* Change Control — launcher for the IRIS for Health Interoperability editor.
  *
- * Adds a single "Change Control" tab to the editor's dashboard strip and opens
- * the tool full-screen in an overlay. Deliberately standalone: it shares no
- * identifiers, styles or state with the Agentic Integration Builder's own
- * inject.js, so both can be loaded on the same page and either can be removed
- * without touching the other.
+ * Adds a "Change Control" icon button to the editor's dashboard strip and opens
+ * the tool full-screen in an overlay. Standalone: it shares no state with the
+ * Agentic Integration Builder's inject.js. The only thing both share is the
+ * toolbar group (class isc-editor-tools, buttons isc-tool-btn, tooltip
+ * #isc-tool-tip), so their icons sit together; whichever script loads first
+ * builds the group, and either can be removed without touching the other.
  *
  * Loaded by HCCCICD.Install.Setup, which appends a <script> tag to
  * /usr/irissys/ui/interop/interop-editor/index.html.
@@ -16,6 +17,9 @@ if (window.__hccCicdInject) return;
 window.__hccCicdInject = true;
 
 var TAB_MARK   = 'hcccicd-tab';
+var TOOLS_GROUP = 'isc-editor-tools';   // shared with the Agentic Integration Builder
+var TOOL_BTN    = 'isc-tool-btn';
+var TIP_ID      = 'isc-tool-tip';
 var OVERLAY_ID = 'hcccicd-overlay';
 var STYLE_ID   = 'hcccicd-inject-styles';
 var BAR_ID     = 'hcccicd-bar';
@@ -114,19 +118,30 @@ function injectStyles() {
   var s = document.createElement('style');
   s.id = STYLE_ID;
   s.textContent = [
-    '.dashboard .navbuttons.' + TAB_MARK + ' {',
-    '  display:flex; flex:0 1 auto;',
-    '  margin:5px; height:32px; box-sizing:border-box;',
-    '  background:#0f766e; border:1px solid #0f766e; border-radius:4px;',
-    '  cursor:pointer; align-items:center;',
+    /* Editor toolbar group, identical to the rules in the Agentic
+     * Integration Builder's inject.js, so the icons look the same whichever
+     * add-on built the group. */
+    '.dashboard .' + TOOLS_GROUP + ' {',
+    '  display:flex; align-items:center; gap:4px; flex:0 0 auto;',
+    '  margin:4px 10px 4px auto; padding-left:10px; border-left:1px solid #e4e7ec;',
     '}',
-    '.dashboard .navbuttons.' + TAB_MARK + ':hover { background:#0d9488; border-color:#0d9488; }',
-    '.dashboard .navbuttons.' + TAB_MARK + ' .hcccicd-tab-inner {',
-    '  display:flex; align-items:center; gap:7px;',
-    '  padding:0 12px; color:#fff; font-size:13px; font-weight:500; white-space:nowrap;',
+    '.' + TOOL_BTN + ' {',
+    '  position:relative; width:34px; height:30px; padding:0; box-sizing:border-box;',
+    '  display:inline-flex; align-items:center; justify-content:center;',
+    '  background:#fff; color:#475467; border:1px solid #d0d5dd; border-radius:7px;',
+    '  cursor:pointer; transition:background .12s, border-color .12s, color .12s;',
     '}',
-    '.dashboard .navbuttons.' + TAB_MARK + ' .hcccicd-tab-inner svg { width:18px; height:18px; }',
-    '.dashboard .navbuttons.' + TAB_MARK + '.is-active { background:#115e59; border-color:#115e59; }',
+    '.' + TOOL_BTN + ':hover { background:#f2f4f7; border-color:#98a2b3; color:#101828; }',
+    '.' + TOOL_BTN + ':focus-visible { outline:2px solid #2f6fed; outline-offset:1px; }',
+    '.' + TOOL_BTN + ' svg { width:18px; height:18px; display:block; }',
+    '.' + TOOL_BTN + '.is-active { background:#101828; border-color:#101828; color:#fff; }',
+    '#' + TIP_ID + ' {',
+    '  position:fixed; z-index:100001; display:none; max-width:300px;',
+    '  padding:7px 10px; border-radius:7px; background:#101828; color:#fff;',
+    '  font:500 12.5px/1.45 -apple-system,"Noto Sans",system-ui,sans-serif;',
+    '  box-shadow:0 6px 18px rgba(16,24,40,.25); pointer-events:none; white-space:normal;',
+    '}',
+    '#' + TIP_ID + ' b { display:block; font-weight:650; margin-bottom:2px; }',
 
     '#' + OVERLAY_ID + ' { position:fixed; inset:0; z-index:99998; background:#0b0d11; display:none; }',
     '#' + OVERLAY_ID + '.open { display:flex; flex-direction:column; }',
@@ -145,7 +160,8 @@ function injectStyles() {
 
     /* ---- status dot on the tab ---- */
     '.' + TAB_MARK + ' .hcccicd-dot {',
-    '  width:8px; height:8px; border-radius:50%; background:#8b93a1; flex:0 0 auto;',
+    '  position:absolute; top:3px; right:3px; width:7px; height:7px; border-radius:50%;',
+    '  background:#8b93a1; border:1.5px solid #fff; box-sizing:content-box;',
     '}',
     '.' + TAB_MARK + ' .hcccicd-dot.on  { background:#34d399; }',
     '.' + TAB_MARK + ' .hcccicd-dot.off { background:#fbbf24; }',
@@ -504,27 +520,64 @@ function close() {
   poll();
 }
 
+/* The icon group at the right end of .dashboard, shared with the Agentic
+ * Integration Builder. Created here if that add-on has not built it yet. */
+function toolsGroup(dash) {
+  var g = dash.querySelector('.' + TOOLS_GROUP);
+  if (!g) {
+    g = document.createElement('div');
+    g.className = TOOLS_GROUP;
+    g.setAttribute('role', 'toolbar');
+    g.setAttribute('aria-label', 'Add-on tools');
+    dash.appendChild(g);
+  }
+  return g;
+}
+
+/* Tooltip on <body>: .dashboard scrolls horizontally and would clip it. */
+function showTip(el) {
+  var t = document.getElementById(TIP_ID);
+  if (!t) { t = document.createElement('div'); t.id = TIP_ID; t.setAttribute('role', 'tooltip'); document.body.appendChild(t); }
+  t.innerHTML = '<b>Change Control</b>' + esc(el.getAttribute('data-tip') || '');
+  t.style.display = 'block';
+  var r = el.getBoundingClientRect();
+  var w = t.offsetWidth;
+  t.style.left = Math.max(8, Math.min(r.right - w, window.innerWidth - w - 8)) + 'px';
+  t.style.top = (r.bottom + 6) + 'px';
+}
+function hideTip() {
+  var t = document.getElementById(TIP_ID);
+  if (t) t.style.display = 'none';
+}
+
 function ensureTab() {
   if (onLoginScreen()) return;
   var dash = document.querySelector('.dashboard');
   if (!dash) return;
   if (dash.querySelector('.' + TAB_MARK)) return;
   injectStyles();
-  var tab = document.createElement('div');
-  tab.className = 'navbuttons ' + TAB_MARK;
+  var tab = document.createElement('button');
+  tab.type = 'button';
+  tab.className = TOOL_BTN + ' ' + TAB_MARK;
+  tab.style.order = 20;
+  tab.setAttribute('aria-label', 'Change Control');
+  tab.setAttribute('data-tip', 'Track what you build in this namespace as a change you can review and deploy.');
   tab.innerHTML =
-    '<div class="hcccicd-tab-inner">' +
-      '<svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true">' +
-      '<path d="M6 3a2.5 2.5 0 0 0-.9 4.83v4.34a2.5 2.5 0 1 0 1.8 0V7.83A2.5 2.5 0 0 0 6 3zm8 0a2.5 2.5 0 0 0-.9 4.83A3.6 3.6 0 0 1 9.9 11H8.6v1.8h1.3a5.4 5.4 0 0 0 5-3.02A2.5 2.5 0 0 0 14 3z" fill="#fff"/>' +
-      '</svg>' +
-      '<span>Change Control</span>' +
-      '<span class="hcccicd-dot"></span>' +
-    '</div>';
+    '<svg viewBox="0 0 20 20" aria-hidden="true">' +
+    '<path fill="currentColor" d="M6 3a2.5 2.5 0 0 0-.9 4.83v4.34a2.5 2.5 0 1 0 1.8 0V7.83A2.5 2.5 0 0 0 6 3zm8 0a2.5 2.5 0 0 0-.9 4.83A3.6 3.6 0 0 1 9.9 11H8.6v1.8h1.3a5.4 5.4 0 0 0 5-3.02A2.5 2.5 0 0 0 14 3z"/>' +
+    '</svg>' +
+    '<span class="hcccicd-dot"></span>';
+  tab.addEventListener('mouseenter', function () { showTip(tab); });
+  tab.addEventListener('focus', function () { showTip(tab); });
+  tab.addEventListener('mouseleave', hideTip);
+  tab.addEventListener('blur', hideTip);
   tab.addEventListener('click', function (e) {
     e.preventDefault(); e.stopPropagation();
+    hideTip();
     open();
   });
-  dash.appendChild(tab);
+  toolsGroup(dash).appendChild(tab);
+  tabSig = '';
   paintTab();
 }
 
@@ -542,9 +595,10 @@ function paintTab() {
   dot.className = 'hcccicd-dot' + (STATE.known ? (STATE.open ? ' on' : ' off') : '');
   var tab = document.querySelector('.' + TAB_MARK);
   if (tab) {
-    tab.title = !STATE.known ? 'Change Control'
-      : STATE.open ? 'Working on ' + STATE.ref + ' — ' + STATE.items + ' items captured'
-      : 'No change started. Start one before you build anything.';
+    tab.setAttribute('data-tip', !STATE.known
+      ? 'Track what you build in this namespace as a change you can review and deploy.'
+      : STATE.open ? 'Working on ' + STATE.ref + ': ' + STATE.items + ' items captured.'
+      : 'No change started. Start one before you build anything.');
   }
 }
 
